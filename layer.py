@@ -33,13 +33,42 @@ class Layer:
         self.image = image.convert("RGB")
         self.x = x
         self.y = y
+
         self.content_alpha = (
             alpha.convert("L").copy()
             if alpha
-            else Image.new("L", self.image.size, 255)
+            else Image.new(
+                "L",
+                self.image.size,
+                255,
+            )
         )
 
         self.alpha = self.content_alpha.copy()
+
+        # Неизменяемая исходная alpha
+        self.content_alpha_array = np.asarray(
+            self.content_alpha,
+            dtype=np.float32,
+        )
+
+        self.visible = visible
+
+        self.item = None
+        self.list_item = None
+        self.eye_button = None
+
+        self.preview_qimage = None
+        self.preview_rgb = None
+
+        # encoded data caches
+        self.image_cache = None
+        self.alpha_cache = None
+        self.content_alpha_cache = None
+
+        self.image_dirty = True
+        self.alpha_dirty = True
+        self.content_alpha_dirty = True
 
         if original_bbox is not None:
             self._original_visible_bbox = tuple(
@@ -64,29 +93,21 @@ class Layer:
             else:
                 self._original_visible_bbox = None
 
-        self.visible = visible
-        self.content_bbox = None
-
-        self.item = None
-        self.list_item = None
-        self.eye_button = None
-        self.preview_qimage = None
-        self.preview_rgb = None
-
-        self.image_cache = None
-        self.alpha_cache = None
-        self.content_alpha_cache = None
-
-        self.image_dirty = True
-        self.alpha_dirty = True
-        self.content_alpha_dirty = True
-
         self.recalculate_content_bbox()
 
     def rgba(self):
         img = self.image.copy()
         img.putalpha(self.alpha)
         return img
+
+    def get_content_alpha_array(self):
+        if not hasattr(self, "content_alpha_array"):
+            self.content_alpha_array = np.asarray(
+                self.content_alpha,
+                dtype=np.uint8,
+            )
+
+        return self.content_alpha_array
 
     def image_bounds(self):
         return (

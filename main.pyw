@@ -1124,6 +1124,8 @@ class CanvasView(QGraphicsView):
                         self.stroke_patches,
                     )
 
+                    self.stroke_layer.recalculate_content_bbox()
+
                 self.stroke_layer = None
                 self.stroke_patches = []
 
@@ -1200,10 +1202,6 @@ class CanvasView(QGraphicsView):
         if x1 <= x0 or y1 <= y0:
             return
 
-        # ----------------------------------------------------
-        # Brush mask
-        # ----------------------------------------------------
-
         mask = self.get_brush_mask()
 
         mx0 = x0 - (cx - r)
@@ -1216,13 +1214,6 @@ class CanvasView(QGraphicsView):
             my0:my1,
             mx0:mx1,
         ]
-
-        # ----------------------------------------------------
-        # Накопительная маска мазка.
-        #
-        # Это view непосредственно на numpy-массив.
-        # Никаких PIL crop/paste.
-        # ----------------------------------------------------
 
         stroke_mask = self.stroke_mask[
             y0:y1,
@@ -1237,17 +1228,11 @@ class CanvasView(QGraphicsView):
             out=stroke_mask,
         )
 
-        # Если этот участок вообще не изменился,
-        # дальше ничего делать не нужно.
         if np.array_equal(
             old_mask,
             stroke_mask,
         ):
             return
-
-        # ----------------------------------------------------
-        # Исходная alpha в начале мазка
-        # ----------------------------------------------------
 
         start_alpha = self.stroke_alpha_start[
             y0:y1,
@@ -1257,15 +1242,11 @@ class CanvasView(QGraphicsView):
             copy=False,
         )
 
-        # ----------------------------------------------------
-        # Рассчитываем новую alpha
-        # ----------------------------------------------------
-
-        if self.ctrl_brush:
-            content = np.asarray(
-                layer.content_alpha,
-                dtype=np.float32,
-            )[y0:y1, x0:x1]
+        if not self.ctrl_brush:
+            content = layer.content_alpha_array[
+                y0:y1,
+                x0:x1,
+            ]
 
             result = (
                 start_alpha
@@ -1294,50 +1275,49 @@ class CanvasView(QGraphicsView):
             np.uint8
         )
 
-        # ----------------------------------------------------
-        # Запоминаем patch для Undo.
-        # ----------------------------------------------------
+        # ------------------------------------------------
+        # Undo patch
+        # ------------------------------------------------
 
-        before = layer.alpha.crop(
-            (x0, y0, x1, y1)
+        before_array = self.stroke_alpha_start[
+            y0:y1,
+            x0:x1,
+        ]
+
+        before = Image.fromarray(
+            before_array.copy(),
+            "L",
         )
 
-        after_image = Image.fromarray(
+        after = Image.fromarray(
             result,
             "L",
         )
 
         layer.alpha.paste(
-            after_image,
+            after,
             (x0, y0),
         )
 
-        after = layer.alpha.crop(
-            (x0, y0, x1, y1)
-        )
-
         if not np.array_equal(
-            np.asarray(before),
-            np.asarray(after),
+            before_array,
+            result,
         ):
             self.stroke_patches.append(
                 (
                     (x0, y0, x1, y1),
-                    before.copy(),
+                    before,
                     after.copy(),
                 )
             )
 
         layer.alpha_dirty = True
 
-        # ----------------------------------------------------
-        # Обновляем preview только изменившимся участком.
-        # ----------------------------------------------------
-
         self.window.update_layer_preview_region(
             layer,
             (x0, y0, x1, y1),
         )
+
 
     def get_brush_mask(self):
         r = self.window.brush_size
@@ -1450,7 +1430,7 @@ class CanvasView(QGraphicsView):
             dtype=np.float32,
         )
 
-        if self.ctrl_brush:
+        if not self.ctrl_brush:
             content = np.asarray(
                 layer.content_alpha.crop(
                     (x0, y0, x1, y1)
@@ -1523,6 +1503,37 @@ class MainWindow(QMainWindow):
         if geometry:
             self.restoreGeometry(geometry)
 
+    def fill_layer_alpha(self, layer, value):
+        if not layer:
+            return
+
+        if layer is self.layers[0]:
+            return
+
+        before = layer.alpha.copy()
+
+        bbox = layer.original_visible_bbox()
+
+        if bbox is None:
+            return
+
+        x0, y0, x1, y1 = bbox
+
+        # Заполняем только исходную область слоя.
+        layer.alpha.paste(
+            value,
+            (x0, y0, x1, y1),
+        )
+
+        layer.alpha_dirty = True
+
+        layer.recalculate_content_bbox()
+
+        self.update_layer_preview(
+            layer
+        )
+
+        self.view.viewport().update()
 
     def update_layer_preview_region(
         self,
@@ -2449,6 +2460,21 @@ class MainWindow(QMainWindow):
 
         save_action = menu.addAction("Save as PNG")
         replace_action = menu.addAction("Replace Contents")
+
+        menu.addSeparator()
+
+        fill_white_action = menu.addAction("Fill White")
+        fill_black_action = menu.addAction("Fill Black")
+
+        fill_white_action.triggered.connect(
+            lambda checked=False, l=layer:
+                self.fill_layer_alpha(l, 255)
+        )
+
+        fill_black_action.triggered.connect(
+            lambda checked=False, l=layer:
+                self.fill_layer_alpha(l, 0)
+        )
 
         menu.addSeparator()
 
@@ -3494,19 +3520,22 @@ class MainWindow(QMainWindow):
                     project["canvas"]
                 )
 
-                for i, data in enumerate(project["layers"]):
+                for i, data in enumerate(
+                    project["layers"]
+                ):
                     image_name = data["image"]
-                    image_data = z.read(image_name)
+
+                    image_data = z.read(
+                        image_name
+                    )
 
                     rgb = Image.open(
                         io.BytesIO(image_data)
                     ).convert("RGB")
 
-                    is_background = (i == 0)
-
-                    # -------------------------------------------------
-                    # Background
-                    # -------------------------------------------------
+                    is_background = (
+                        i == 0
+                    )
 
                     if is_background:
                         alpha = Image.new(
@@ -3523,10 +3552,6 @@ class MainWindow(QMainWindow):
 
                         alpha_data = None
                         content_alpha_data = b""
-
-                    # -------------------------------------------------
-                    # Normal layer
-                    # -------------------------------------------------
 
                     else:
                         alpha_name = data["alpha"]
@@ -3567,10 +3592,6 @@ class MainWindow(QMainWindow):
                                 255,
                             )
 
-                    # -------------------------------------------------
-                    # Layer
-                    # -------------------------------------------------
-
                     layer = Layer(
                         data["name"],
                         rgb,
@@ -3578,35 +3599,40 @@ class MainWindow(QMainWindow):
                         data["y"],
                         alpha,
                         data["visible"],
-                        original_bbox=data["original_bbox"],
+                        original_bbox=data[
+                            "original_bbox"
+                        ],
                     )
 
+                    # В проекте content_alpha хранится
+                    # отдельно от текущей alpha.
                     layer.content_alpha = (
                         content_alpha
                     )
 
-                    # -------------------------------------------------
-                    # Image cache
-                    # -------------------------------------------------
+                    # ВАЖНО:
+                    # пересоздаём numpy-кэш именно
+                    # из загруженной content_alpha.
+                    layer.content_alpha_array = (
+                        np.asarray(
+                            content_alpha,
+                            dtype=np.float32,
+                        )
+                    )
+
+                    # ------------------------------------------------
+                    # Кэши PNG
+                    # ------------------------------------------------
 
                     layer.image_cache = image_data
                     layer.image_dirty = False
 
-                    # -------------------------------------------------
-                    # Alpha cache
-                    # -------------------------------------------------
-
                     layer.alpha_cache = alpha_data
                     layer.alpha_dirty = False
-
-                    # -------------------------------------------------
-                    # Content alpha cache
-                    # -------------------------------------------------
 
                     layer.content_alpha_cache = (
                         content_alpha_data
                     )
-
                     layer.content_alpha_dirty = False
 
                     self.layers.append(layer)
@@ -3616,7 +3642,9 @@ class MainWindow(QMainWindow):
 
             self.rebuild_scene()
 
-            self.project_path = os.path.abspath(path)
+            self.project_path = os.path.abspath(
+                path
+            )
 
             self.update_project_stats()
 
@@ -3637,7 +3665,6 @@ class MainWindow(QMainWindow):
                 "Ошибка загрузки",
                 str(e),
             )
-
 
     # ========================================================
     # Keyboard shortcuts
