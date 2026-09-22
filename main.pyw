@@ -1,3 +1,5 @@
+################################################################################
+## Main
 
 import io
 import json
@@ -45,7 +47,7 @@ from PyQt6.QtWidgets import (
 
 from layer import Layer, LayerPreviewItem
 
-APP_VERSION = (0, 1)
+APP_VERSION = (0, 1, 1)
 
 if sys.platform == "win32":
     import ctypes
@@ -77,6 +79,7 @@ def pil_to_qimage(img):
 # ============================================================
 
 class LayerRowWidget(QWidget):
+
     def __init__(self, window, layer, item):
         super().__init__()
 
@@ -93,9 +96,7 @@ class LayerRowWidget(QWidget):
         self.eye_button.setIconSize(QSize(20, 20))
         self.eye_button.setFlat(True)
         self.eye_button.clicked.connect(
-            lambda: self.window.toggle_layer_visibility(
-                self.window.layers.index(self.layer)
-            )
+            lambda: self.window.toggle_layer_visibility(self.window.layers.index(self.layer))
         )
 
         # Обычное отображение имени
@@ -142,14 +143,10 @@ class LayerRowWidget(QWidget):
     def update_appearance(self):
         if self.layer.visible:
             self.eye_button.setIcon(QIcon("icons/eye_show.svg"))
-            self.name_label.setStyleSheet(
-                "color: white;"
-            )
+            self.name_label.setStyleSheet("color: white;")
         else:
             self.eye_button.setIcon(QIcon("icons/eye_hide.svg"))
-            self.name_label.setStyleSheet(
-                "color: #777;"
-            )
+            self.name_label.setStyleSheet("color: #777;")
 
         self.save_button.setStyleSheet(
             """
@@ -193,11 +190,10 @@ class LayerRowWidget(QWidget):
         )
 
     def start_rename(self):
-        self.name_edit.setText(self.layer.name)
-
         self.name_label.setVisible(False)
-        self.name_edit.setVisible(True)
 
+        self.name_edit.setText(self.layer.name)
+        self.name_edit.setVisible(True)
         self.name_edit.setFocus()
         self.name_edit.selectAll()
 
@@ -239,7 +235,7 @@ class LayerRowWidget(QWidget):
         bounds = self.layer.visible_bounds()
 
         if bounds:
-            x, y, width, height = bounds
+            x, y, w, h = bounds
             text = f"({x}, {y})"
         else:
             text = f"({self.layer.x}, {self.layer.y})"
@@ -257,6 +253,7 @@ class LayerRowWidget(QWidget):
 # ============================================================
 
 class LayerListWidget(QListWidget):
+
     def __init__(self, window):
         super().__init__()
 
@@ -268,6 +265,7 @@ class LayerListWidget(QListWidget):
 # ============================================================
 
 class CanvasView(QGraphicsView):
+
     def __init__(self, window):
         super().__init__()
 
@@ -326,9 +324,7 @@ class CanvasView(QGraphicsView):
 
         files = [ u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile() ]
 
-        valid_files = [
-            path
-            for path in files
+        valid_files = [ path for path in files
             if (
                 path.lower().endswith(".kpp")
                 or path.lower().endswith((
@@ -450,14 +446,7 @@ class CanvasView(QGraphicsView):
                 current_size = self.window.brush_size
                 scale = max(1.0, current_size / 200.0)
 
-                new_size = max(
-                    1,
-                    int(
-                        current_size
-                        + delta_x * scale
-                    ),
-                )
-
+                new_size = max(1, int(current_size + delta_x * scale))
                 self.window.set_brush_size(new_size)
 
                 self.brush_resize_last_x = e.position().x()
@@ -476,23 +465,13 @@ class CanvasView(QGraphicsView):
         # СКМ = Grab
         # ----------------------------------------------------
 
-        if (
-            self.grabbing
-            and self.grab_last_pos is not None
-        ):
+        if self.grabbing and self.grab_last_pos is not None:
             delta = e.position() - self.grab_last_pos
 
             self.grab_last_pos = e.position()
 
-            self.horizontalScrollBar().setValue(
-                self.horizontalScrollBar().value()
-                - int(delta.x())
-            )
-
-            self.verticalScrollBar().setValue(
-                self.verticalScrollBar().value()
-                - int(delta.y())
-            )
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - int(delta.x()))
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - int(delta.y()))
 
             return
 
@@ -519,10 +498,7 @@ class CanvasView(QGraphicsView):
         super().paintEvent(e)
 
         p = QPainter(self.viewport())
-
-        p.setRenderHint(
-            QPainter.RenderHint.Antialiasing
-        )
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         # ========================================================
         # Bounding boxes активного слоя
@@ -530,11 +506,7 @@ class CanvasView(QGraphicsView):
 
         layer = self.window.selected_layer()
 
-        if (
-            layer
-            and layer.visible
-            and layer is not self.window.layers[0]
-        ):
+        if layer and layer.visible and layer is not self.window.layers[0]:
             s = self.window.preview_scale
 
             p.setBrush(Qt.BrushStyle.NoBrush)
@@ -554,55 +526,17 @@ class CanvasView(QGraphicsView):
                 original_x1 = (layer.x + x1) * s
                 original_y1 = (layer.y + y1) * s
 
-                p1 = self.mapFromScene(
-                    original_x0,
-                    original_y0,
-                )
+                p1 = self.mapFromScene(original_x0, original_y0)
+                p2 = self.mapFromScene(original_x1, original_y1)
 
-                p2 = self.mapFromScene(
-                    original_x1,
-                    original_y1,
-                )
+                p.setPen(QPen(QColor(255, 255, 0, 220), 1, Qt.PenStyle.DashLine))
+                p.drawRect(p1.x(), p1.y(), p2.x() - p1.x(), p2.y() - p1.y())
 
-                p.setPen(
-                    QPen(
-                        QColor(255, 255, 0, 220),
-                        1,
-                        Qt.PenStyle.DashLine,
-                    )
-                )
+            p1 = self.mapFromScene(original_x0, original_y0)
+            p2 = self.mapFromScene(original_x1, original_y1)
 
-                p.drawRect(
-                    p1.x(),
-                    p1.y(),
-                    p2.x() - p1.x(),
-                    p2.y() - p1.y(),
-                )
-
-            p1 = self.mapFromScene(
-                original_x0,
-                original_y0,
-            )
-
-            p2 = self.mapFromScene(
-                original_x1,
-                original_y1,
-            )
-
-            p.setPen(
-                QPen(
-                    QColor(255, 255, 0, 220),
-                    1,
-                    Qt.PenStyle.DashLine,
-                )
-            )
-
-            p.drawRect(
-                p1.x(),
-                p1.y(),
-                p2.x() - p1.x(),
-                p2.y() - p1.y(),
-            )
+            p.setPen(QPen(QColor(255, 255, 0, 220), 1, Qt.PenStyle.DashLine))
+            p.drawRect(p1.x(), p1.y(), p2.x() - p1.x(), p2.y() - p1.y())
 
             # ====================================================
             # Visible bounding box
@@ -622,20 +556,8 @@ class CanvasView(QGraphicsView):
                 p1 = self.mapFromScene(scene_x0, scene_y0)
                 p2 = self.mapFromScene(scene_x1, scene_y1)
 
-                p.setPen(
-                    QPen(
-                        QColor(255, 255, 255, 220),
-                        1,
-                        Qt.PenStyle.DashLine,
-                    )
-                )
-
-                p.drawRect(
-                    p1.x(),
-                    p1.y(),
-                    p2.x() - p1.x(),
-                    p2.y() - p1.y(),
-                )
+                p.setPen(QPen(QColor(255, 255, 255, 220), 1, Qt.PenStyle.DashLine))
+                p.drawRect(p1.x(), p1.y(), p2.x() - p1.x(), p2.y() - p1.y())
 
         # ========================================================
         # Курсор кисти
@@ -649,11 +571,7 @@ class CanvasView(QGraphicsView):
 
         zoom = self.transform().m11()
 
-        radius = (
-            self.window.brush_size
-            * self.window.preview_scale
-            * zoom
-        )
+        radius = self.window.brush_size * self.window.preview_scale * zoom
 
         if radius < 1:
             p.end()
@@ -690,67 +608,29 @@ class CanvasView(QGraphicsView):
             fade_start = max(0.0, min(0.99, fade_start))
 
             gradient = QRadialGradient(self.cursor_pos, radius)
-
-            gradient.setColorAt(
-                0.0,
-                QColor(220, 220, 220, 75),
-            )
+            gradient.setColorAt(0.0, QColor(220, 220, 220, 75))
 
             if fade_start > 0.0:
-                gradient.setColorAt(
-                    fade_start,
-                    QColor(220, 220, 220, 75),
-                )
+                gradient.setColorAt(fade_start, QColor(220, 220, 220, 75))
 
-            gradient.setColorAt(
-                1.0,
-                QColor(220, 220, 220, 0),
-            )
+            gradient.setColorAt(1.0, QColor(220, 220, 220, 0))
 
             # Мягкая внутренняя часть.
             p.setPen(Qt.PenStyle.NoPen)
-
             p.setBrush(gradient)
-
-            p.drawEllipse(
-                self.cursor_pos,
-                radius,
-                radius,
-            )
-
+            p.drawEllipse(self.cursor_pos, radius, radius)
             p.setBrush(Qt.BrushStyle.NoBrush)
-
-            p.setPen(
-                QPen(
-                    QColor(255, 255, 255, 230),
-                    2,
-                )
-            )
-
-            p.drawEllipse(
-                self.cursor_pos,
-                radius,
-                radius,
-            )
+            p.setPen(QPen(QColor(255, 255, 255, 230), 2))
+            p.drawEllipse(self.cursor_pos, radius, radius)
 
             # Текст.
             p.setPen(QColor(255, 255, 255, 230))
 
-            text = (
-                f"Size {self.window.brush_size}px  "
-                f"Hardness {self.window.brush_hardness:.0f}%"
-            )
+            text = f"Size {self.window.brush_size}px  Hardness {self.window.brush_hardness:.0f}%"
 
             p.drawText(
-                round(
-                    self.cursor_pos.x()
-                    + radius
-                    + 10
-                ),
-                round(
-                    self.cursor_pos.y()
-                    - 10
-                ),
+                round(self.cursor_pos.x() + radius + 10),
+                round(self.cursor_pos.y() - 10),
                 text,
             )
 
@@ -760,32 +640,10 @@ class CanvasView(QGraphicsView):
             # ====================================================
 
             p.setBrush(Qt.BrushStyle.NoBrush)
-
-            p.setPen(
-                QPen(
-                    QColor(255, 255, 255, 230),
-                    2,
-                )
-            )
-
-            p.drawEllipse(
-                self.cursor_pos,
-                radius,
-                radius,
-            )
-
-            p.setPen(
-                QPen(
-                    QColor(0, 0, 0, 180),
-                    1,
-                )
-            )
-
-            p.drawEllipse(
-                self.cursor_pos,
-                radius + 1,
-                radius + 1,
-            )
+            p.setPen(QPen(QColor(255, 255, 255, 230), 2))
+            p.drawEllipse(self.cursor_pos, radius, radius)
+            p.setPen(QPen(QColor(0, 0, 0, 180), 1))
+            p.drawEllipse(self.cursor_pos, radius + 1, radius + 1)
 
         p.end()
 
@@ -795,10 +653,7 @@ class CanvasView(QGraphicsView):
 
     def keyPressEvent(self, e):
 
-        if (
-            e.key() == Qt.Key.Key_V
-            and e.modifiers() & Qt.KeyboardModifier.ControlModifier
-        ):
+        if e.key() == Qt.Key.Key_V and e.modifiers() & Qt.KeyboardModifier.ControlModifier:
             clipboard = QGuiApplication.clipboard()
             mime = clipboard.mimeData()
 
@@ -818,30 +673,22 @@ class CanvasView(QGraphicsView):
             return
 
         if e.nativeScanCode() == 33 and not e.isAutoRepeat():
-
             local_pos = self.mapFromGlobal(self.cursor().pos())
 
             self.resizing_brush = True
             self.brush_resize_last_x = local_pos.x()
 
             self.brush_resize_start_x = local_pos.x()
-            self.brush_resize_start_size = (
-                self.window.brush_size
-            )
+            self.brush_resize_start_size = self.window.brush_size
 
             self.brush_hardness_start_y = local_pos.y()
-            self.brush_hardness_start_value = (
-                self.window.brush_hardness
-            )
+            self.brush_hardness_start_value = self.window.brush_hardness
 
             # ================================================
             # Shift + F = регулировка силы
             # ================================================
 
-            self.adjusting_brush_opacity = bool(
-                e.modifiers()
-                & Qt.KeyboardModifier.ShiftModifier
-            )
+            self.adjusting_brush_opacity = bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
 
             if self.adjusting_brush_opacity:
                 self.brush_opacity_start_x = local_pos.x()
@@ -872,9 +719,7 @@ class CanvasView(QGraphicsView):
             self.adjusting_brush_opacity = False
 
             if not self.grabbing:
-                self.setCursor(
-                    Qt.CursorShape.ArrowCursor
-                )
+                self.setCursor(Qt.CursorShape.ArrowCursor)
 
             self.viewport().update()
 
@@ -905,10 +750,7 @@ class CanvasView(QGraphicsView):
         # ЛКМ = кисть
         # ----------------------------------------------------
 
-        if (
-            e.button() == Qt.MouseButton.LeftButton
-            and self.window.brush_enabled
-        ):
+        if e.button() == Qt.MouseButton.LeftButton and self.window.brush_enabled:
             layer = self.window.selected_layer()
 
             if layer is self.window.layers[0]:
@@ -920,10 +762,7 @@ class CanvasView(QGraphicsView):
                 self.stroke_patches = []
 
                 # Снимок альфы в начале текущего мазка.
-                self.stroke_alpha_start = np.asarray(
-                    layer.alpha,
-                    dtype=np.uint8,
-                ).copy()
+                self.stroke_alpha_start = np.asarray(layer.alpha, dtype=np.uint8).copy()
 
                 # Накопительная маска текущего мазка.
                 self.stroke_mask = np.zeros(
@@ -964,15 +803,8 @@ class CanvasView(QGraphicsView):
             if self.painting:
                 self.painting = False
 
-                if (
-                    self.stroke_layer
-                    and self.stroke_patches
-                ):
-                    self.window.finish_brush_action(
-                        self.stroke_layer,
-                        self.stroke_patches,
-                    )
-
+                if self.stroke_layer and self.stroke_patches:
+                    self.window.finish_brush_action(self.stroke_layer, self.stroke_patches)
                     self.stroke_layer.recalculate_content_bbox()
 
                 self.stroke_layer = None
@@ -1008,20 +840,12 @@ class CanvasView(QGraphicsView):
         if self.stroke_mask is None:
             return
 
-        scene_pos = self.mapToScene(
-            int(pos.x()),
-            int(pos.y()),
-        )
+        scene_pos = self.mapToScene(int(pos.x()), int(pos.y()))
 
         s = self.window.preview_scale
 
-        cx = int(
-            scene_pos.x() / s
-        ) - layer.x
-
-        cy = int(
-            scene_pos.y() / s
-        ) - layer.y
+        cx = int(scene_pos.x() / s) - layer.x
+        cy = int(scene_pos.y() / s) - layer.y
 
         r = self.window.brush_size
 
@@ -1044,96 +868,43 @@ class CanvasView(QGraphicsView):
         mx1 = mx0 + (x1 - x0)
         my1 = my0 + (y1 - y0)
 
-        brush_strength = mask[
-            my0:my1,
-            mx0:mx1,
-        ]
-
-        stroke_mask = self.stroke_mask[
-            y0:y1,
-            x0:x1,
-        ]
+        brush_strength = mask[my0:my1, mx0:mx1]
+        stroke_mask = self.stroke_mask[y0:y1, x0:x1]
 
         old_mask = stroke_mask.copy()
 
-        np.maximum(
-            stroke_mask,
-            brush_strength,
-            out=stroke_mask,
-        )
+        np.maximum(stroke_mask, brush_strength, out=stroke_mask)
 
-        if np.array_equal(
-            old_mask,
-            stroke_mask,
-        ):
+        if np.array_equal(old_mask, stroke_mask):
             return
 
-        start_alpha = self.stroke_alpha_start[
-            y0:y1,
-            x0:x1,
-        ].astype(
+        start_alpha = self.stroke_alpha_start[y0:y1, x0:x1].astype(
             np.float32,
             copy=False,
         )
 
         if not self.ctrl_brush:
-            content = layer.content_alpha_array[
-                y0:y1,
-                x0:x1,
-            ]
-
-            result = (
-                start_alpha
-                + (
-                    content
-                    - start_alpha
-                ) * stroke_mask
-            )
-
-            result = np.minimum(
-                result,
-                content,
-            )
+            content = layer.content_alpha_array[y0:y1, x0:x1]
+            result = start_alpha + (content - start_alpha) * stroke_mask
+            result = np.minimum(result, content)
 
         else:
             result = start_alpha * (1.0 - stroke_mask)
 
-        result = np.clip(
-            result,
-            0,
-            255,
-        ).astype(
-            np.uint8
-        )
+        result = np.clip(result, 0, 255).astype(np.uint8)
 
         # ------------------------------------------------
         # Undo patch
         # ------------------------------------------------
 
-        before_array = self.stroke_alpha_start[
-            y0:y1,
-            x0:x1,
-        ]
+        before_array = self.stroke_alpha_start[y0:y1, x0:x1]
 
-        before = Image.fromarray(
-            before_array.copy(),
-            "L",
-        )
+        before = Image.fromarray(before_array.copy(), "L")
+        after = Image.fromarray(result, "L")
 
-        after = Image.fromarray(
-            result,
-            "L",
-        )
+        layer.alpha.paste(after, (x0, y0))
 
-        layer.alpha.paste(
-            after,
-            (x0, y0),
-        )
-
-        if not np.array_equal(
-            before_array,
-            result,
-        ):
+        if not np.array_equal(before_array, result):
             self.stroke_patches.append(
                 (
                     (x0, y0, x1, y1),
@@ -1144,10 +915,7 @@ class CanvasView(QGraphicsView):
 
         layer.alpha_dirty = True
 
-        self.window.update_layer_preview_region(
-            layer,
-            (x0, y0, x1, y1),
-        )
+        self.window.update_layer_preview_region(layer, (x0, y0, x1, y1))
 
 
     def get_brush_mask(self):
@@ -1155,16 +923,9 @@ class CanvasView(QGraphicsView):
         hardness = self.window.brush_hardness
         opacity = self.window.brush_opacity
 
-        key = (
-            r,
-            round(hardness, 3),
-            round(opacity, 4),
-        )
+        key = (r, round(hardness, 3), round(opacity, 4))
 
-        if (
-            self.brush_mask is not None
-            and self.brush_mask_key == key
-        ):
+        if self.brush_mask is not None and self.brush_mask_key == key:
             return self.brush_mask
 
         size = r * 2 + 1
@@ -1174,48 +935,26 @@ class CanvasView(QGraphicsView):
         dx = xx - r
         dy = yy - r
 
-        dist = np.sqrt(
-            dx * dx + dy * dy
-        )
+        dist = np.sqrt(dx * dx + dy * dy)
 
-        t = np.clip(
-            dist / max(1, r),
-            0.0,
-            1.0,
-        )
+        t = np.clip(dist / max(1, r), 0.0, 1.0)
 
         hardness_value = hardness / 100.0
         hard_edge = hardness_value * 0.95
 
         if hard_edge >= 0.999:
-            edge = np.clip(
-                (1.0 - t) / 0.05,
-                0.0,
-                1.0,
-            )
-
+            edge = np.clip((1.0 - t) / 0.05, 0.0, 1.0)
             strength = edge
 
         else:
-            fade = np.clip(
-                (t - hard_edge)
-                / (1.0 - hard_edge),
-                0.0,
-                1.0,
-            )
-
-            fade = (
-                fade * fade * (3.0 - 2.0 * fade)
-            )
+            fade = np.clip((t - hard_edge) / (1.0 - hard_edge), 0.0, 1.0)
+            fade = fade * fade * (3.0 - 2.0 * fade)
 
             strength = 1.0 - fade
 
         strength *= opacity
 
-        self.brush_mask = strength.astype(
-            np.float32
-        )
-
+        self.brush_mask = strength.astype(np.float32)
         self.brush_mask_key = key
 
         return self.brush_mask
@@ -1229,14 +968,8 @@ class CanvasView(QGraphicsView):
 
         x0 = max(0, cx - r)
         y0 = max(0, cy - r)
-        x1 = min(
-            layer.alpha.width,
-            cx + r + 1,
-        )
-        y1 = min(
-            layer.alpha.height,
-            cy + r + 1,
-        )
+        x1 = min(layer.alpha.width, cx + r + 1)
+        y1 = min(layer.alpha.height, cy + r + 1)
 
         if x1 <= x0 or y1 <= y0:
             return
@@ -1249,23 +982,13 @@ class CanvasView(QGraphicsView):
         mx1 = mx0 + (x1 - x0)
         my1 = my0 + (y1 - y0)
 
-        strength = mask[
-            my0:my1,
-            mx0:mx1,
-        ]
+        strength = mask[my0:my1, mx0:mx1]
 
-        arr = np.asarray(
-            layer.alpha.crop(
-                (x0, y0, x1, y1)
-            ),
-            dtype=np.float32,
-        )
+        arr = np.asarray(layer.alpha.crop((x0, y0, x1, y1)), dtype=np.float32)
 
         if not self.ctrl_brush:
             content = np.asarray(
-                layer.content_alpha.crop(
-                    (x0, y0, x1, y1)
-                ),
+                layer.content_alpha.crop((x0, y0, x1, y1)),
                 dtype=np.float32,
             )
 
@@ -1273,30 +996,21 @@ class CanvasView(QGraphicsView):
 
             # Нельзя восстановить прозрачность
             # выше исходной альфа-маски.
-            arr = np.minimum(
-                arr,
-                content,
-            )
+            arr = np.minimum(arr, content)
 
         else:
             arr *= 1.0 - strength
 
-        arr = np.clip(
-            arr,
-            0,
-            255,
-        ).astype(np.uint8)
+        arr = np.clip(arr, 0, 255).astype(np.uint8)
 
-        layer.alpha.paste(
-            Image.fromarray(arr, "L"),
-            (x0, y0),
-        )
+        layer.alpha.paste(Image.fromarray(arr, "L"), (x0, y0))
 
 # ============================================================
 # Main Window
 # ============================================================
 
 class MainWindow(QMainWindow):
+
     def __init__(self):
         super().__init__()
 
@@ -1314,7 +1028,7 @@ class MainWindow(QMainWindow):
         self.canvas_width = 0
         self.canvas_height = 0
 
-        self.max_preview_size = 3000#1800
+        self.max_preview_size = 3000
         self.preview_scale = 1.0
 
         self.brush_enabled = True
@@ -1335,13 +1049,12 @@ class MainWindow(QMainWindow):
             self.restoreGeometry(geometry)
 
     def fill_layer_alpha(self, layer, value):
+
         if not layer:
             return
 
         if layer is self.layers[0]:
             return
-
-        before = layer.alpha.copy()
 
         bbox = layer.original_visible_bbox()
 
@@ -1351,64 +1064,32 @@ class MainWindow(QMainWindow):
         x0, y0, x1, y1 = bbox
 
         # Заполняем только исходную область слоя.
-        layer.alpha.paste(
-            value,
-            (x0, y0, x1, y1),
-        )
+        layer.alpha.paste(value, (x0, y0, x1, y1))
 
         layer.alpha_dirty = True
-
         layer.recalculate_content_bbox()
 
-        self.update_layer_preview(
-            layer
-        )
+        self.update_layer_preview(layer)
 
         self.view.viewport().update()
 
-    def update_layer_preview_region(
-        self,
-        layer,
-        rect,
-    ):
+    def update_layer_preview_region(self, layer, rect):
         if not layer.item:
             return
 
-        if not isinstance(
-            layer.item,
-            LayerPreviewItem,
-        ):
-            self.update_layer_preview(
-                layer
-            )
+        if not isinstance(layer.item, LayerPreviewItem):
+            self.update_layer_preview(layer)
             return
 
         s = self.preview_scale
 
         x0, y0, x1, y1 = rect
 
-        # Координаты изменяемой области
-        # в preview-пикселях.
-
-        px0 = max(
-            0,
-            int(np.floor(x0 * s)),
-        )
-
-        py0 = max(
-            0,
-            int(np.floor(y0 * s)),
-        )
-
-        px1 = min(
-            layer.item.image.width(),
-            int(np.ceil(x1 * s)),
-        )
-
-        py1 = min(
-            layer.item.image.height(),
-            int(np.ceil(y1 * s)),
-        )
+        # Координаты изменяемой области в preview-пикселях
+        px0 = max(0, int(np.floor(x0 * s)))
+        py0 = max(0, int(np.floor(y0 * s)))
+        px1 = min(layer.item.image.width(), int(np.ceil(x1 * s)))
+        py1 = min(layer.item.image.height(), int(np.ceil(y1 * s)))
 
         if px1 <= px0 or py1 <= py0:
             return
@@ -1420,48 +1101,19 @@ class MainWindow(QMainWindow):
         # Берём только нужный участок исходника
         # ----------------------------------------
 
-        src_x0 = max(
-            0,
-            int(np.floor(px0 / s)),
-        )
-
-        src_y0 = max(
-            0,
-            int(np.floor(py0 / s)),
-        )
-
-        src_x1 = min(
-            layer.image.width,
-            int(np.ceil(px1 / s)),
-        )
-
-        src_y1 = min(
-            layer.image.height,
-            int(np.ceil(py1 / s)),
-        )
+        src_x0 = max(0, int(np.floor(px0 / s)))
+        src_y0 = max(0, int(np.floor(py0 / s)))
+        src_x1 = min(layer.image.width, int(np.ceil(px1 / s)))
+        src_y1 = min(layer.image.height, int(np.ceil(py1 / s)))
 
         if src_x1 <= src_x0 or src_y1 <= src_y0:
             return
 
         # RGB patch
-        rgb = layer.image.crop(
-            (
-                src_x0,
-                src_y0,
-                src_x1,
-                src_y1,
-            )
-        )
+        rgb = layer.image.crop((src_x0, src_y0, src_x1, src_y1))
 
         # Alpha patch
-        alpha = layer.alpha.crop(
-            (
-                src_x0,
-                src_y0,
-                src_x1,
-                src_y1,
-            )
-        )
+        alpha = layer.alpha.crop((src_x0, src_y0, src_x1, src_y1))
 
         rgb.putalpha(alpha)
 
@@ -1470,31 +1122,16 @@ class MainWindow(QMainWindow):
         # patch должен иметь ровно preview-размер
         # ----------------------------------------
 
-        if (
-            rgb.width != preview_w
-            or rgb.height != preview_h
-        ):
-            rgb = rgb.resize(
-                (
-                    preview_w,
-                    preview_h,
-                ),
-                Image.Resampling.LANCZOS,
-            )
+        if (rgb.width != preview_w) or (rgb.height != preview_h):
+            rgb = rgb.resize((preview_w, preview_h), Image.Resampling.LANCZOS)
 
-        patch = pil_to_qimage(
-            rgb
-        )
+        patch = pil_to_qimage(rgb)
 
         # ----------------------------------------
         # Меняем только маленький участок QImage
         # ----------------------------------------
 
-        layer.item.update_region(
-            patch,
-            px0,
-            py0,
-        )
+        layer.item.update_region(patch, px0, py0)
 
     def add_image_from_clipboard(self, qimage):
         if qimage.isNull():
@@ -1508,17 +1145,9 @@ class MainWindow(QMainWindow):
             ptr = qimage.bits()
             ptr.setsize(width * height * 4)
 
-            arr = np.frombuffer(
-                ptr,
-                dtype=np.uint8,
-            ).reshape(
-                (height, width, 4)
-            )
+            arr = np.frombuffer(ptr, dtype=np.uint8).reshape((height, width, 4))
 
-            pil_image = Image.fromarray(
-                arr,
-                "RGBA",
-            )
+            pil_image = Image.fromarray(arr, "RGBA")
 
             rgb = pil_image.convert("RGB")
             alpha = pil_image.getchannel("A")
@@ -1544,22 +1173,13 @@ class MainWindow(QMainWindow):
             layer_name = base_name
             number = 2
 
-            existing_names = {
-                layer.name
-                for layer in self.layers
-            }
+            existing_names = { layer.name for layer in self.layers }
 
             while layer_name in existing_names:
                 layer_name = f"{base_name} {number}"
                 number += 1
 
-            layer = Layer(
-                layer_name,
-                rgb,
-                x,
-                y,
-                alpha,
-            )
+            layer = Layer(layer_name, rgb, x, y, alpha)
 
             index = len(self.layers)
 
@@ -1584,17 +1204,11 @@ class MainWindow(QMainWindow):
             self.update_window_title()
             self.update_history_buttons()
 
-            self.status.setText(
-                f"Вставлено из clipboard: "
-                f"{rgb.width} × {rgb.height}"
-            )
+            self.status.setText(f"Pasted from clipboard: {rgb.width} × {rgb.height}")
 
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Ошибка вставки",
-                str(e),
-            )
+            QMessageBox.critical(self, "Error pasting from clipboard", str(e))
+
     # ========================================================
     # Project state
     # ========================================================
@@ -1607,15 +1221,9 @@ class MainWindow(QMainWindow):
 
     def update_window_title(self):
         if self.project_path:
-            filename = os.path.splitext(
-                os.path.basename(self.project_path)
-            )[0]
+            filename = os.path.splitext(os.path.basename(self.project_path))[0]
             full_path = os.path.abspath(self.project_path)
-
-            title = (
-                f"{filename} [{full_path}] - "
-                f"kPanorama {".".join(str(n) for n in APP_VERSION)}"
-            )
+            title = f"{filename} [{full_path}] - kPanorama {".".join(str(n) for n in APP_VERSION)}"
         else:
             title = f"Untitled - kPanorama {".".join(str(n) for n in APP_VERSION)}"
 
@@ -1646,18 +1254,9 @@ class MainWindow(QMainWindow):
         msg.setWindowTitle("Unsaved changes")
         msg.setText("The project has unsaved changes. Save them?")
 
-        save_button = msg.addButton(
-            "Save",
-            QMessageBox.ButtonRole.AcceptRole,
-        )
-        discard_button = msg.addButton(
-            "Discard",
-            QMessageBox.ButtonRole.DestructiveRole,
-        )
-        cancel_button = msg.addButton(
-            "Cancel",
-            QMessageBox.ButtonRole.RejectRole,
-        )
+        save_button = msg.addButton("Save", QMessageBox.ButtonRole.AcceptRole)
+        discard_button = msg.addButton("Discard", QMessageBox.ButtonRole.DestructiveRole)
+        cancel_button = msg.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
 
         msg.exec()
         clicked = msg.clickedButton()
@@ -1743,17 +1342,12 @@ class MainWindow(QMainWindow):
 
         toolbar.addWidget(file_button)
 
-
         settings_button = QToolButton()
         settings_button.setText("Settings")
         settings_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
         settings_menu = QMenu(self)
-
-        settings_menu.addAction(
-            "Register File Associations",
-            self.register_file_associations,
-        )
+        settings_menu.addAction("Register File Associations", self.register_file_associations)
 
         settings_button.setMenu(settings_menu)
 
@@ -1761,24 +1355,17 @@ class MainWindow(QMainWindow):
 
         toolbar.addWidget(create_separator())
 
-
         # ----------------------------------------------------
         # Undo / Redo
         # ----------------------------------------------------
 
         toolbar.setIconSize(QSize(20, 20))
 
-        self.undo_action = toolbar.addAction(
-            QIcon("icons/undo.svg"),
-            ""
-        )
+        self.undo_action = toolbar.addAction(QIcon("icons/undo.svg"), "")
         self.undo_action.setToolTip("Undo")
         self.undo_action.triggered.connect(self.undo)
 
-        self.redo_action = toolbar.addAction(
-            QIcon("icons/redo.svg"),
-            ""
-        )
+        self.redo_action = toolbar.addAction(QIcon("icons/redo.svg"), "")
         self.redo_action.setToolTip("Redo")
         self.redo_action.triggered.connect(self.redo)
 
@@ -1843,7 +1430,6 @@ class MainWindow(QMainWindow):
 
         toolbar.addWidget(create_separator())
 
-
         # ----------------------------------------------------
         # Size
         # ----------------------------------------------------
@@ -1866,7 +1452,6 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(self.brush_size_label)
 
         toolbar.addWidget(create_separator())
-
 
         # ----------------------------------------------------
         # Hardness
@@ -1936,9 +1521,7 @@ class MainWindow(QMainWindow):
     def update_project_stats(self):
         # Размер проекта
         if self.canvas_width and self.canvas_height:
-            project_size = (
-                f"{self.canvas_width} × {self.canvas_height}"
-            )
+            project_size = f"{self.canvas_width} × {self.canvas_height}"
         else:
             project_size = "-"
 
@@ -2004,8 +1587,7 @@ class MainWindow(QMainWindow):
 
         register_kpp_file_association()
 
-        QMessageBox.information(
-            self,
+        QMessageBox.information(self,
             "File Associations",
             ".kpp file association registered.",
         )
@@ -2038,7 +1620,6 @@ class MainWindow(QMainWindow):
         value = max(1, min(100, int(value)))
 
         self.brush_strength = value
-
         self.brush_opacity = value / 100.0
 
         if self.brush_opacity_slider.value() != value:
@@ -2192,13 +1773,11 @@ class MainWindow(QMainWindow):
         fill_black_action = menu.addAction("Fill Black")
 
         fill_white_action.triggered.connect(
-            lambda checked=False, l=layer:
-                self.fill_layer_alpha(l, 255)
+            lambda checked=False, l=layer: self.fill_layer_alpha(l, 255)
         )
 
         fill_black_action.triggered.connect(
-            lambda checked=False, l=layer:
-                self.fill_layer_alpha(l, 0)
+            lambda checked=False, l=layer: self.fill_layer_alpha(l, 0)
         )
 
         menu.addSeparator()
@@ -2307,8 +1886,7 @@ class MainWindow(QMainWindow):
     # ========================================================
 
     def open_image(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self,
+        path, _ = QFileDialog.getOpenFileName(self,
             "Add image",
             "",
             "Images (*.png *.jpg *.jpeg *.webp *.bmp *.tif *.tiff)",
@@ -2337,14 +1915,8 @@ class MainWindow(QMainWindow):
             canvas_size = (self.canvas_width, self.canvas_height)
 
             if rgb.size != canvas_size:
-                rgb = rgb.resize(
-                    canvas_size,
-                    Image.Resampling.LANCZOS,
-                )
-                alpha = alpha.resize(
-                    canvas_size,
-                    Image.Resampling.LANCZOS,
-                )
+                rgb = rgb.resize(canvas_size, Image.Resampling.LANCZOS)
+                alpha = alpha.resize(canvas_size, Image.Resampling.LANCZOS )
 
         return rgb, alpha
 
@@ -2370,20 +1942,10 @@ class MainWindow(QMainWindow):
                 self.canvas_height = rgb.height
 
             else:
-                rgb, alpha = self.load_image_file(
-                    path,
-                    background=False,
-                )
+                rgb, alpha = self.load_image_file(path, background=False)
 
             layer_name = os.path.splitext(os.path.basename(path))[0]
-
-            layer = Layer(
-                layer_name,
-                rgb,
-                0,
-                0,
-                alpha,
-            )
+            layer = Layer(layer_name, rgb, 0, 0, alpha,)
 
             index = len(self.layers)
             self.layers.append(layer)
@@ -2408,11 +1970,7 @@ class MainWindow(QMainWindow):
             )
 
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Ошибка загрузки",
-                str(e),
-            )
+            QMessageBox.critical(self, "Error adding image", str(e))
 
     # ========================================================
     # Replace layer
@@ -2467,11 +2025,7 @@ class MainWindow(QMainWindow):
             self.status.setText(f"Image replaced: {new_layer.name}")
 
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Ошибка замены",
-                str(e),
-            )
+            QMessageBox.critical(self, "Error replacing image", str(e))
 
     # ========================================================
     # Preview scale
@@ -2490,14 +2044,8 @@ class MainWindow(QMainWindow):
         w = max(1, round(layer.image.width * s))
         h = max(1, round(layer.image.height * s))
 
-        rgb = layer.image.resize(
-            (w, h),
-            Image.Resampling.LANCZOS,
-        )
-        alpha = layer.alpha.resize(
-            (w, h),
-            Image.Resampling.LANCZOS,
-        )
+        rgb = layer.image.resize((w, h), Image.Resampling.LANCZOS)
+        alpha = layer.alpha.resize((w, h), Image.Resampling.LANCZOS)
 
         rgb.putalpha(alpha)
         return rgb
@@ -2507,27 +2055,17 @@ class MainWindow(QMainWindow):
             return
 
         preview = self.create_preview(layer)
-
         qimage = pil_to_qimage(preview)
-
         layer.preview_qimage = qimage
 
-        if isinstance(
-            layer.item,
-            LayerPreviewItem,
-        ):
+        if isinstance(layer.item, LayerPreviewItem):
             layer.item.set_image(qimage)
 
         else:
             item = LayerPreviewItem(qimage)
 
-            item.setPos(
-                layer.x * self.preview_scale,
-                layer.y * self.preview_scale,
-            )
-
+            item.setPos(layer.x * self.preview_scale, layer.y * self.preview_scale)
             item.setVisible(layer.visible)
-
             layer.item = item
 
             self.view.scene().addItem(item)
@@ -2552,18 +2090,15 @@ class MainWindow(QMainWindow):
         color2 = QColor("#8f8f8f")
 
         for y in range(0, height, cell_size):
+
             for x in range(0, width, cell_size):
+
                 if ((x // cell_size) + (y // cell_size)) % 2:
                     painter.setBrush(color2)
                 else:
                     painter.setBrush(color1)
 
-                painter.drawRect(
-                    x,
-                    y,
-                    min(cell_size, width - x),
-                    min(cell_size, height - y),
-                )
+                painter.drawRect(x, y, min(cell_size, width - x), min(cell_size, height - y))
 
         painter.end()
 
@@ -2585,22 +2120,12 @@ class MainWindow(QMainWindow):
 
         if self.canvas_width and self.canvas_height:
             checker = self.create_checkerboard(
-                max(1, round(
-                    self.canvas_width * self.preview_scale
-                )),
-                max(1, round(
-                    self.canvas_height * self.preview_scale
-                )),
-                cell_size=max(
-                    1,
-                    round(16 * self.preview_scale),
-                ),
+                max(1, round(self.canvas_width * self.preview_scale)),
+                max(1, round(self.canvas_height * self.preview_scale)),
+                cell_size=max(1, round(16 * self.preview_scale)),
             )
 
-            checker_item = QGraphicsPixmapItem(
-                QPixmap.fromImage(checker)
-            )
-
+            checker_item = QGraphicsPixmapItem(QPixmap.fromImage(checker))
             checker_item.setZValue(-1000)
 
             scene.addItem(checker_item)
@@ -2614,14 +2139,8 @@ class MainWindow(QMainWindow):
             layer.preview_qimage = pil_to_qimage(preview)
 
             item = LayerPreviewItem(layer.preview_qimage)
-
-            item.setPos(
-                layer.x * self.preview_scale,
-                layer.y * self.preview_scale,
-            )
-
+            item.setPos(layer.x * self.preview_scale, layer.y * self.preview_scale)
             item.setVisible(layer.visible)
-
             layer.item = item
 
             self.view.scene().addItem(item)
@@ -2657,18 +2176,9 @@ class MainWindow(QMainWindow):
 
         scene_w = self.canvas_width * self.preview_scale
         scene_h = self.canvas_height * self.preview_scale
+        margin = max(self.view.viewport().width(), self.view.viewport().height())
 
-        margin = max(
-            self.view.viewport().width(),
-            self.view.viewport().height(),
-        )
-
-        self.view.scene().setSceneRect(
-            -margin,
-            -margin,
-            scene_w + margin * 2,
-            scene_h + margin * 2,
-        )
+        self.view.scene().setSceneRect(-margin, -margin, scene_w + margin * 2, scene_h + margin * 2)
 
     # ========================================================
     # Layers
@@ -2724,11 +2234,7 @@ class MainWindow(QMainWindow):
         index = self.selected_index()
 
         if index <= 0:
-            QMessageBox.information(
-                self,
-                "Удаление",
-                "Фоновый слой удалить нельзя.",
-            )
+            QMessageBox.information(self, "Удаление", "Фоновый слой удалить нельзя.")
             return
 
         layer = self.layers.pop(index)
@@ -2780,12 +2286,13 @@ class MainWindow(QMainWindow):
         sequence = reversed(patches) if undo else patches
 
         for rect, before, after in sequence:
-            layer.alpha.paste(
-                before if undo else after,
-                rect[:2],
-            )
+            layer.alpha.paste(before if undo else after, rect[:2])
+
+        if layer:
+            layer.recalculate_content_bbox()
 
         self.update_layer_preview(layer)
+
 
     # ========================================================
     # Undo
@@ -2844,6 +2351,8 @@ class MainWindow(QMainWindow):
 
         elif typ == "reorder":
             self.restore_layer_order(action["old_ids"])
+
+        self.redo_stack.append(action)
 
         self.update_window_title()
         self.update_project_stats()
@@ -2920,8 +2429,20 @@ class MainWindow(QMainWindow):
     # ========================================================
 
     def update_history_buttons(self):
-        self.undo_action.setEnabled(bool(self.undo_stack))
-        self.redo_action.setEnabled(bool(self.redo_stack))
+
+        if self.undo_stack:
+            self.undo_action.setEnabled(True)
+            self.undo_action.setIcon(QIcon("icons/undo.svg"))
+        else:
+            self.undo_action.setEnabled(False)
+            self.undo_action.setIcon(QIcon("icons/undo_inactive.svg"))
+
+        if self.redo_stack:
+            self.redo_action.setEnabled(True)
+            self.redo_action.setIcon(QIcon("icons/redo.svg"))
+        else:
+            self.redo_action.setEnabled(False)
+            self.redo_action.setIcon(QIcon("icons/redo_inactive.svg"))
 
     # ========================================================
     # Export PNG
@@ -2940,11 +2461,7 @@ class MainWindow(QMainWindow):
         ys, xs = np.where(alpha > 0)
 
         if len(xs) == 0:
-            QMessageBox.information(
-                self,
-                "Экспорт",
-                "Слой полностью прозрачный.",
-            )
+            QMessageBox.information(self, "Экспорт", "Слой полностью прозрачный.")
             return
 
         left = int(xs.min())
@@ -2952,16 +2469,9 @@ class MainWindow(QMainWindow):
         top = int(ys.min())
         bottom = int(ys.max()) + 1
 
-        result = layer.rgba().crop(
-            (left, top, right, bottom)
-        )
+        result = layer.rgba().crop((left, top, right, bottom))
 
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save PNG",
-            os.path.splitext(layer.name)[0] + ".png",
-            "PNG (*.png)",
-        )
+        path, _ = QFileDialog.getSaveFileName(self, "Save PNG", os.path.splitext(layer.name)[0] + ".png", "PNG (*.png)")
 
         if not path:
             return
@@ -2977,38 +2487,23 @@ class MainWindow(QMainWindow):
 
     def save_layer_to_project_folder(self, layer):
         if not self.project_path:
-            QMessageBox.information(
-                self,
-                "Сохранение слоя",
-                "Сначала сохраните проект.",
-            )
+            QMessageBox.information(self, "Сохранение слоя", "Сначала сохраните проект.")
             return
 
-        project_dir = os.path.dirname(
-            os.path.abspath(self.project_path)
-        )
-
+        project_dir = os.path.dirname(os.path.abspath(self.project_path))
         filename = layer.name.strip()
 
         if not filename:
             filename = "Layer"
 
         filename = os.path.splitext(filename)[0]
-
-        path = os.path.join(
-            project_dir,
-            filename + ".png",
-        )
+        path = os.path.join(project_dir, filename + ".png")
 
         alpha = np.asarray(layer.alpha)
         ys, xs = np.where(alpha > 0)
 
         if len(xs) == 0:
-            QMessageBox.information(
-                self,
-                "Сохранение слоя",
-                "Слой полностью прозрачный.",
-            )
+            QMessageBox.information(self, "Сохранение слоя", "Слой полностью прозрачный.")
             return
 
         left = int(xs.min())
@@ -3016,9 +2511,7 @@ class MainWindow(QMainWindow):
         top = int(ys.min())
         bottom = int(ys.max()) + 1
 
-        result = layer.rgba().crop(
-            (left, top, right, bottom)
-        )
+        result = layer.rgba().crop((left, top, right, bottom))
 
         try:
             result.save(path, "PNG")
@@ -3031,11 +2524,7 @@ class MainWindow(QMainWindow):
             self.status.setText(f"Layer saved: {os.path.basename(path)} ({x}, {y})")
 
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error saving",
-                str(e),
-            )
+            QMessageBox.critical(self, "Error saving", str(e))
 
     # ========================================================
     # Save project
@@ -3054,12 +2543,7 @@ class MainWindow(QMainWindow):
         if not self.layers:
             return False
 
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Project",
-            "",
-            "kPanorama Project (*.kpp)",
-        )
+        path, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "kPanorama Project (*.kpp)")
 
         if not path:
             return False
@@ -3071,12 +2555,9 @@ class MainWindow(QMainWindow):
 
 
     def write_project(self, path):
+
         try:
-            with zipfile.ZipFile(
-                path,
-                "w",
-                compression=zipfile.ZIP_STORED,
-            ) as z:
+            with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as z:
 
                 project = {
                     "version": 10,
@@ -3092,10 +2573,7 @@ class MainWindow(QMainWindow):
 
                     # RGB-изображение всегда сохраняется lossless.
                     # Если кэш актуален — PNG повторно не кодируется.
-                    z.writestr(
-                        image_name,
-                        layer.get_image_data(),
-                    )
+                    z.writestr(image_name, layer.get_image_data())
 
                     is_background = (i == 0) or (layer is self.layers[0])
 
@@ -3107,24 +2585,16 @@ class MainWindow(QMainWindow):
                     if not is_background:
                         alpha_name = f"alpha_{i}.png"
 
-                        z.writestr(
-                            alpha_name,
-                            layer.get_alpha_data(),
-                        )
+                        z.writestr(alpha_name, layer.get_alpha_data())
 
                         content_alpha_data = layer.get_content_alpha_data()
 
                         if content_alpha_data:
                             content_alpha_name = f"content_alpha_{i}.png"
 
-                            z.writestr(
-                                content_alpha_name,
-                                content_alpha_data,
-                            )
+                            z.writestr(content_alpha_name, content_alpha_data)
 
-                        original_bbox = (
-                            layer.original_visible_bbox()
-                        )
+                        original_bbox = layer.original_visible_bbox()
 
                     project["layers"].append({
                         "name": layer.name,
@@ -3143,11 +2613,7 @@ class MainWindow(QMainWindow):
 
                 z.writestr(
                     "project.json",
-                    json.dumps(
-                        project,
-                        ensure_ascii=False,
-                        indent=2,
-                    ),
+                    json.dumps(project, ensure_ascii=False, indent=2),
                 )
 
             self.project_path = os.path.abspath(path)
@@ -3159,11 +2625,7 @@ class MainWindow(QMainWindow):
             return True
 
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error saving",
-                str(e),
-            )
+            QMessageBox.critical(self, "Error saving", str(e))
             return False
 
     # ========================================================
@@ -3171,12 +2633,7 @@ class MainWindow(QMainWindow):
     # ========================================================
 
     def load_project(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Open Project",
-            "",
-            "kPanorama Project (*.kpp)",
-        )
+        path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "kPanorama Project (*.kpp)")
 
         if not path:
             return
@@ -3201,24 +2658,13 @@ class MainWindow(QMainWindow):
                     image_name = data["image"]
                     image_data = z.read(image_name)
 
-                    rgb = Image.open(
-                        io.BytesIO(image_data)
-                    ).convert("RGB")
+                    rgb = Image.open(io.BytesIO(image_data)).convert("RGB")
 
                     is_background = i == 0
 
                     if is_background:
-                        alpha = Image.new(
-                            "L",
-                            rgb.size,
-                            255,
-                        )
-
-                        content_alpha = Image.new(
-                            "L",
-                            rgb.size,
-                            255,
-                        )
+                        alpha = Image.new("L", rgb.size, 255)
+                        content_alpha = Image.new("L", rgb.size, 255)
 
                         alpha_data = None
                         content_alpha_data = b""
@@ -3227,40 +2673,19 @@ class MainWindow(QMainWindow):
                         alpha_name = data["alpha"]
 
                         if not alpha_name:
-                            raise ValueError(
-                                f"У слоя {i} отсутствует alpha"
-                            )
+                            raise ValueError(f"У слоя {i} отсутствует alpha")
 
-                        alpha_data = z.read(
-                            alpha_name
-                        )
+                        alpha_data = z.read(alpha_name)
+                        alpha = Image.open(io.BytesIO(alpha_data)).convert("L")
 
-                        alpha = Image.open(
-                            io.BytesIO(alpha_data)
-                        ).convert("L")
-
-                        content_alpha_name = (
-                            data["content_alpha"]
-                        )
+                        content_alpha_name = data["content_alpha"]
 
                         if content_alpha_name:
-                            content_alpha_data = z.read(
-                                content_alpha_name
-                            )
-
-                            content_alpha = Image.open(
-                                io.BytesIO(
-                                    content_alpha_data
-                                )
-                            ).convert("L")
+                            content_alpha_data = z.read(content_alpha_name)
+                            content_alpha = Image.open(io.BytesIO(content_alpha_data)).convert("L")
                         else:
                             content_alpha_data = b""
-
-                            content_alpha = Image.new(
-                                "L",
-                                rgb.size,
-                                255,
-                            )
+                            content_alpha = Image.new("L", rgb.size, 255)
 
                     layer = Layer(
                         data["name"],
@@ -3281,17 +2706,9 @@ class MainWindow(QMainWindow):
                     # ВАЖНО:
                     # пересоздаём numpy-кэш именно
                     # из загруженной content_alpha.
-                    layer.content_alpha_array = (
-                        np.asarray(
-                            content_alpha,
-                            dtype=np.float32,
-                        )
-                    )
+                    layer.content_alpha_array = np.asarray(content_alpha, dtype=np.float32)
 
-                    # ------------------------------------------------
                     # Кэши PNG
-                    # ------------------------------------------------
-
                     layer.image_cache = image_data
                     layer.image_dirty = False
 
@@ -3320,11 +2737,7 @@ class MainWindow(QMainWindow):
             self.status.setText("Project loaded")
 
         except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Error loading",
-                str(e),
-            )
+            QMessageBox.critical(self, "Error loading", str(e))
 
     # ========================================================
     # Keyboard shortcuts
@@ -3333,10 +2746,7 @@ class MainWindow(QMainWindow):
     def keyPressEvent(self, e):
         modifiers = e.modifiers()
 
-        if (
-            modifiers == Qt.KeyboardModifier.ControlModifier
-            and e.key() == Qt.Key.Key_S
-        ):
+        if modifiers == Qt.KeyboardModifier.ControlModifier and (e.key() == Qt.Key.Key_S):
             self.save_project()
             return
 
@@ -3351,27 +2761,18 @@ class MainWindow(QMainWindow):
             self.save_project_as()
             return
 
-        if (
-            modifiers == Qt.KeyboardModifier.ControlModifier
-            and e.key() == Qt.Key.Key_O
-        ):
+        if modifiers == Qt.KeyboardModifier.ControlModifier and (e.key() == Qt.Key.Key_O):
             self.load_project()
             return
 
         # Ctrl + E — сохранить текущий слой
-        if (
-            modifiers == Qt.KeyboardModifier.ControlModifier
-            and e.key() == Qt.Key.Key_E
-        ):
+        if modifiers == Qt.KeyboardModifier.ControlModifier and (e.key() == Qt.Key.Key_E):
             layer = self.selected_layer()
 
             if layer:
                 self.save_layer_to_project_folder(layer)
 
-        if (
-            modifiers == Qt.KeyboardModifier.ControlModifier
-            and e.key() == Qt.Key.Key_Z
-        ):
+        if modifiers == Qt.KeyboardModifier.ControlModifier and (e.key() == Qt.Key.Key_Z):
             self.undo()
             return
 
@@ -3401,9 +2802,6 @@ if len(sys.argv) > 1:
     file_path = sys.argv[1]
 
     if os.path.isfile(file_path) and file_path.lower().endswith(".kpp"):
-        QTimer.singleShot(
-            0,
-            lambda: window.load_project_from_path(file_path)
-        )
+        QTimer.singleShot(0, lambda: window.load_project_from_path(file_path))
 
 sys.exit(app.exec())

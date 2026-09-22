@@ -1,3 +1,5 @@
+################################################################################
+## Layer
 
 import io
 import uuid
@@ -14,7 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 
-class Layer:
+class Layer():
 
     def __init__(
         self,
@@ -71,17 +73,12 @@ class Layer:
         self.content_alpha_dirty = True
 
         if original_bbox is not None:
-            self._original_visible_bbox = tuple(
-                original_bbox
-            )
-        else:
-            alpha_array = np.asarray(
-                self.content_alpha
-            )
+            self._original_visible_bbox = tuple(original_bbox)
 
-            ys, xs = np.nonzero(
-                alpha_array > 0
-            )
+        else:
+            alpha_array = np.asarray(self.content_alpha)
+
+            ys, xs = np.nonzero(alpha_array > 0)
 
             if len(xs):
                 self._original_visible_bbox = (
@@ -158,11 +155,7 @@ class Layer:
         )
 
     def recalculate_content_bbox(self):
-        alpha = np.asarray(
-            self.alpha,
-            dtype=np.uint8,
-        )
-
+        alpha = np.asarray(self.alpha, dtype=np.uint8)
         ys, xs = np.nonzero(alpha)
 
         if len(xs) == 0:
@@ -210,19 +203,12 @@ class Layer:
 
 
     def get_content_alpha_data(self):
-        if (
-            self.content_alpha_cache is None
-            or self.content_alpha_dirty
-        ):
-            content_alpha_array = np.asarray(
-                self.content_alpha
-            )
+        if self.content_alpha_cache is None or self.content_alpha_dirty:
+            content_alpha_array = np.asarray(self.content_alpha)
 
             # Полностью непрозрачную маску
             # вообще не нужно сохранять.
-            if np.all(
-                content_alpha_array == 255
-            ):
+            if np.all(content_alpha_array == 255):
                 self.content_alpha_cache = b""
             else:
                 buf = io.BytesIO()
@@ -233,23 +219,20 @@ class Layer:
                     compress_level=1,
                 )
 
-                self.content_alpha_cache = (
-                    buf.getvalue()
-                )
+                self.content_alpha_cache = buf.getvalue()
 
             self.content_alpha_dirty = False
 
         return self.content_alpha_cache
 
 class LayerPreviewItem(QGraphicsItem):
+
     def __init__(self, image):
         super().__init__()
 
         self.image = image
 
-        self.setAcceptedMouseButtons(
-            Qt.MouseButton.NoButton
-        )
+        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
 
     def boundingRect(self):
         return QRectF(
@@ -259,29 +242,18 @@ class LayerPreviewItem(QGraphicsItem):
             self.image.height(),
         )
 
-    def paint(
-        self,
-        painter,
-        option,
-        widget=None,
-    ):
+    def paint(self, painter, option, widget=None):
         exposed = option.exposedRect
 
         if exposed.isEmpty():
             return
 
-        rect = exposed.intersected(
-            self.boundingRect()
-        )
+        rect = exposed.intersected(self.boundingRect())
 
         if rect.isEmpty():
             return
 
-        painter.drawImage(
-            rect,
-            self.image,
-            rect,
-        )
+        painter.drawImage(rect, self.image, rect)
 
     def set_image(self, image):
         if image is self.image:
@@ -294,26 +266,14 @@ class LayerPreviewItem(QGraphicsItem):
 
         self.update()
 
-    def update_region(
-        self,
-        patch,
-        x,
-        y,
-    ):
+    def update_region(self, patch, x, y):
         if patch.isNull():
             return
 
         painter = QPainter(self.image)
 
-        painter.setCompositionMode(
-            QPainter.CompositionMode.CompositionMode_Source
-        )
-
-        painter.drawImage(
-            x,
-            y,
-            patch,
-        )
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        painter.drawImage(x, y, patch)
 
         painter.end()
 
