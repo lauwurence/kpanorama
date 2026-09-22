@@ -141,16 +141,12 @@ class LayerRowWidget(QWidget):
 
     def update_appearance(self):
         if self.layer.visible:
-            self.eye_button.setIcon(
-                QIcon("icons/eye_show.svg")
-            )
+            self.eye_button.setIcon(QIcon("icons/eye_show.svg"))
             self.name_label.setStyleSheet(
                 "color: white;"
             )
         else:
-            self.eye_button.setIcon(
-                QIcon("icons/eye_hide.svg")
-            )
+            self.eye_button.setIcon(QIcon("icons/eye_hide.svg"))
             self.name_label.setStyleSheet(
                 "color: #777;"
             )
@@ -244,13 +240,13 @@ class LayerRowWidget(QWidget):
 
         if bounds:
             x, y, width, height = bounds
-            text = f"{x}, {y}"
+            text = f"({x}, {y})"
         else:
-            text = f"{self.layer.x}, {self.layer.y}"
+            text = f"({self.layer.x}, {self.layer.y})"
 
         QApplication.clipboard().setText(text)
 
-        self.window.status.setText(f"Coordinates copied: ({text})")
+        self.window.status.setText(f"Coordinates copied: {text}")
 
     def save_layer(self):
         self.window.save_layer_to_project_folder(self.layer)
@@ -281,13 +277,8 @@ class CanvasView(QGraphicsView):
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
 
-        self.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
-
-        self.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self.setScene(QGraphicsScene(self))
         self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
@@ -333,11 +324,7 @@ class CanvasView(QGraphicsView):
             e.ignore()
             return
 
-        files = [
-            u.toLocalFile()
-            for u in e.mimeData().urls()
-            if u.isLocalFile()
-        ]
+        files = [ u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile() ]
 
         valid_files = [
             path
@@ -366,11 +353,7 @@ class CanvasView(QGraphicsView):
             e.ignore()
             return
 
-        files = [
-            u.toLocalFile()
-            for u in e.mimeData().urls()
-            if u.isLocalFile()
-        ]
+        files = [ u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile() ]
 
         if any(
             path.lower().endswith(".kpp")
@@ -390,26 +373,15 @@ class CanvasView(QGraphicsView):
             e.ignore()
 
     def dropEvent(self, e):
-        files = [
-            u.toLocalFile()
-            for u in e.mimeData().urls()
-            if u.isLocalFile()
-        ]
+        files = [ u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile() ]
 
         for path in files:
+
             if not os.path.isfile(path):
                 continue
 
-            # --------------------------------------------
-            # .kpp = открыть проект
-            # --------------------------------------------
-
             if path.lower().endswith(".kpp"):
                 self.window.load_project_from_path(path)
-
-            # --------------------------------------------
-            # Изображения = добавить как слой
-            # --------------------------------------------
 
             else:
                 self.window.add_image(path)
@@ -456,31 +428,14 @@ class CanvasView(QGraphicsView):
             # ====================================================
 
             if self.adjusting_brush_opacity:
-                delta_x = (
-                    e.position().x()
-                    - self.brush_opacity_start_x
-                )
-
-                delta_y = (
-                    self.brush_opacity_start_y
-                    - e.position().y()
-                )
-
+                delta_x = e.position().x() - self.brush_opacity_start_x
+                delta_y = self.brush_opacity_start_y - e.position().y()
                 delta = delta_x + delta_y
 
-                new_strength = (
-                    self.brush_strength_start_value
-                    + delta * 0.5
-                )
+                new_strength = self.brush_strength_start_value + (delta * 0.5)
+                new_strength = max(1, min(100, int(new_strength)))
 
-                new_strength = max(
-                    1,
-                    min(100, int(new_strength)),
-                )
-
-                self.window.set_brush_opacity(
-                    new_strength
-                )
+                self.window.set_brush_opacity(new_strength)
 
                 self.viewport().update()
                 return
@@ -489,20 +444,11 @@ class CanvasView(QGraphicsView):
             # Обычный F
             # ====================================================
 
-            delta_x = (
-                e.position().x()
-                - self.brush_resize_last_x
-            )
+            delta_x = e.position().x() - self.brush_resize_last_x
 
             if delta_x != 0:
-                current_size = (
-                    self.window.brush_size
-                )
-
-                scale = max(
-                    1.0,
-                    current_size / 200.0,
-                )
+                current_size = self.window.brush_size
+                scale = max(1.0, current_size / 200.0)
 
                 new_size = max(
                     1,
@@ -512,32 +458,16 @@ class CanvasView(QGraphicsView):
                     ),
                 )
 
-                self.window.set_brush_size(
-                    new_size
-                )
+                self.window.set_brush_size(new_size)
 
-                self.brush_resize_last_x = (
-                    e.position().x()
-                )
+                self.brush_resize_last_x = e.position().x()
 
-            delta_y = (
-                self.brush_hardness_start_y
-                - e.position().y()
-            )
+            delta_y = self.brush_hardness_start_y - e.position().y()
 
-            new_hardness = (
-                self.brush_hardness_start_value
-                + delta_y * 0.5
-            )
+            new_hardness = self.brush_hardness_start_value + (delta_y * 0.5)
+            new_hardness = max(0.0, min(100.0, new_hardness))
 
-            new_hardness = max(
-                0.0,
-                min(100.0, new_hardness),
-            )
-
-            self.window.set_brush_hardness(
-                new_hardness
-            )
+            self.window.set_brush_hardness(new_hardness)
 
             self.viewport().update()
             return
@@ -550,10 +480,7 @@ class CanvasView(QGraphicsView):
             self.grabbing
             and self.grab_last_pos is not None
         ):
-            delta = (
-                e.position()
-                - self.grab_last_pos
-            )
+            delta = e.position() - self.grab_last_pos
 
             self.grab_last_pos = e.position()
 
@@ -573,10 +500,7 @@ class CanvasView(QGraphicsView):
         # ЛКМ = кисть
         # ----------------------------------------------------
 
-        if (
-            self.painting
-            and self.stroke_layer
-        ):
+        if self.painting and self.stroke_layer:
             self.paint_at(e.position())
             return
 
@@ -613,9 +537,7 @@ class CanvasView(QGraphicsView):
         ):
             s = self.window.preview_scale
 
-            p.setBrush(
-                Qt.BrushStyle.NoBrush
-            )
+            p.setBrush(Qt.BrushStyle.NoBrush)
 
             # ====================================================
             # Original bounding box
@@ -627,21 +549,10 @@ class CanvasView(QGraphicsView):
             if original_bbox:
                 x0, y0, x1, y1 = original_bbox
 
-                original_x0 = (
-                    layer.x + x0
-                ) * s
-
-                original_y0 = (
-                    layer.y + y0
-                ) * s
-
-                original_x1 = (
-                    layer.x + x1
-                ) * s
-
-                original_y1 = (
-                    layer.y + y1
-                ) * s
+                original_x0 = (layer.x + x0) * s
+                original_y0 = (layer.y + y0) * s
+                original_x1 = (layer.x + x1) * s
+                original_y1 = (layer.y + y1) * s
 
                 p1 = self.mapFromScene(
                     original_x0,
@@ -703,31 +614,13 @@ class CanvasView(QGraphicsView):
             if bbox:
                 x0, y0, x1, y1 = bbox
 
-                scene_x0 = (
-                    layer.x + x0
-                ) * s
+                scene_x0 = (layer.x + x0) * s
+                scene_y0 = (layer.y + y0) * s
+                scene_x1 = (layer.x + x1) * s
+                scene_y1 = (layer.y + y1) * s
 
-                scene_y0 = (
-                    layer.y + y0
-                ) * s
-
-                scene_x1 = (
-                    layer.x + x1
-                ) * s
-
-                scene_y1 = (
-                    layer.y + y1
-                ) * s
-
-                p1 = self.mapFromScene(
-                    scene_x0,
-                    scene_y0,
-                )
-
-                p2 = self.mapFromScene(
-                    scene_x1,
-                    scene_y1,
-                )
+                p1 = self.mapFromScene(scene_x0, scene_y0)
+                p2 = self.mapFromScene(scene_x1, scene_y1)
 
                 p.setPen(
                     QPen(
@@ -748,16 +641,11 @@ class CanvasView(QGraphicsView):
         # Курсор кисти
         # ========================================================
 
-        if (
-            self.cursor_pos is None
-            or not self.window.brush_enabled
-        ):
+        if self.cursor_pos is None or not self.window.brush_enabled:
             p.end()
             return
 
-        p.setRenderHint(
-            QPainter.RenderHint.Antialiasing
-        )
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         zoom = self.transform().m11()
 
@@ -775,28 +663,12 @@ class CanvasView(QGraphicsView):
             opacity = self.window.brush_opacity
             strength = self.window.brush_strength
 
-            # Чем выше сила, тем плотнее круг
-            alpha = int(
-                opacity * 255
-            )
+            alpha = int(opacity * 255)
 
-            p.setBrush(
-                QColor(180, 180, 180, alpha)
-            )
-
-            p.setPen(
-                QPen(QColor(230, 230, 230, 220), 2)
-            )
-
-            p.drawEllipse(
-                self.cursor_pos,
-                radius,
-                radius,
-            )
-
-            p.setPen(
-                QColor(255, 255, 255, 230)
-            )
+            p.setBrush(QColor(180, 180, 180, alpha))
+            p.setPen(QPen(QColor(230, 230, 230, 220), 2))
+            p.drawEllipse(self.cursor_pos, radius, radius)
+            p.setPen(QColor(255, 255, 255, 230))
 
             p.drawText(
                 round(self.cursor_pos.x() + radius + 10),
@@ -812,22 +684,12 @@ class CanvasView(QGraphicsView):
         # ========================================================
 
         if self.resizing_brush:
-            hardness = (
-                self.window.brush_hardness / 100.0
-            )
+            hardness = self.window.brush_hardness / 100.0
 
-            # Чем выше Hardness, тем уже мягкая зона.
             fade_start = hardness
-            fade_start = max(
-                0.0,
-                min(0.99, fade_start),
-            )
+            fade_start = max(0.0, min(0.99, fade_start))
 
-            # Радиальный градиент мягкости.
-            gradient = QRadialGradient(
-                self.cursor_pos,
-                radius,
-            )
+            gradient = QRadialGradient(self.cursor_pos, radius)
 
             gradient.setColorAt(
                 0.0,
@@ -846,13 +708,9 @@ class CanvasView(QGraphicsView):
             )
 
             # Мягкая внутренняя часть.
-            p.setPen(
-                Qt.PenStyle.NoPen
-            )
+            p.setPen(Qt.PenStyle.NoPen)
 
-            p.setBrush(
-                gradient
-            )
+            p.setBrush(gradient)
 
             p.drawEllipse(
                 self.cursor_pos,
@@ -860,10 +718,7 @@ class CanvasView(QGraphicsView):
                 radius,
             )
 
-            # Старый контур размера кисти.
-            p.setBrush(
-                Qt.BrushStyle.NoBrush
-            )
+            p.setBrush(Qt.BrushStyle.NoBrush)
 
             p.setPen(
                 QPen(
@@ -879,9 +734,7 @@ class CanvasView(QGraphicsView):
             )
 
             # Текст.
-            p.setPen(
-                QColor(255, 255, 255, 230)
-            )
+            p.setPen(QColor(255, 255, 255, 230))
 
             text = (
                 f"Size {self.window.brush_size}px  "
@@ -966,9 +819,7 @@ class CanvasView(QGraphicsView):
 
         if e.nativeScanCode() == 33 and not e.isAutoRepeat():
 
-            local_pos = self.mapFromGlobal(
-                self.cursor().pos()
-            )
+            local_pos = self.mapFromGlobal(self.cursor().pos())
 
             self.resizing_brush = True
             self.brush_resize_last_x = local_pos.x()
@@ -1177,25 +1028,10 @@ class CanvasView(QGraphicsView):
         if r <= 0:
             return
 
-        x0 = max(
-            0,
-            cx - r,
-        )
-
-        y0 = max(
-            0,
-            cy - r,
-        )
-
-        x1 = min(
-            layer.alpha.width,
-            cx + r + 1,
-        )
-
-        y1 = min(
-            layer.alpha.height,
-            cy + r + 1,
-        )
+        x0 = max(0, cx - r)
+        y0 = max(0, cy - r)
+        x1 = min(layer.alpha.width, cx + r + 1)
+        y1 = min(layer.alpha.height, cy + r + 1)
 
         if x1 <= x0 or y1 <= y0:
             return
@@ -1260,10 +1096,7 @@ class CanvasView(QGraphicsView):
             )
 
         else:
-            result = (
-                start_alpha
-                * (1.0 - stroke_mask)
-            )
+            result = start_alpha * (1.0 - stroke_mask)
 
         result = np.clip(
             result,
