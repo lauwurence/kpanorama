@@ -34,6 +34,9 @@ class History():
         if typ == "brush":
             self.apply_brush_patches(action, True)
 
+        elif typ == "fill_alpha":
+            self.apply_fill_alpha(action, True)
+
         elif typ == "add":
             index = action["index"]
 
@@ -102,6 +105,9 @@ class History():
 
         if typ == "brush":
             self.apply_brush_patches(action, False)
+
+        elif typ == "fill_alpha":
+            self.apply_fill_alpha(action, False)
 
         elif typ == "add":
             index = action["index"]

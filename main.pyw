@@ -313,11 +313,8 @@ class MainWindow(QMainWindow, History, ProjectIO):
 
     def create_mask_color_lut(self):
         lut = np.zeros((256, 3), dtype=np.uint8)
-
-        # alpha = 0 -> blue
         lut[0] = (0, 0, 255)
 
-        # 0 < alpha < 1 -> green -> red
         values = np.arange(1, 255, dtype=np.float32)
 
         t = (values - 1.0) / 253.0
@@ -325,12 +322,11 @@ class MainWindow(QMainWindow, History, ProjectIO):
         lut[1:255, 0] = np.round(255.0 * t).astype(np.uint8)
         lut[1:255, 1] = np.round(255.0 * (1.0 - t)).astype(np.uint8)
 
-        # alpha = 1 -> white
         lut[255] = (255, 255, 255)
 
         return lut
 
-    def fill_layer_alpha(self, layer, value):
+    def fill_layer_alpha(self, layer, white):
 
         if not layer:
             return
@@ -345,15 +341,37 @@ class MainWindow(QMainWindow, History, ProjectIO):
 
         x0, y0, x1, y1 = bbox
 
-        # Заполняем только исходную область слоя.
-        layer.alpha.paste(value, (x0, y0, x1, y1))
+        before = layer.alpha.crop((x0, y0, x1, y1))
+
+        if white:
+            layer.alpha = layer.content_alpha.copy()
+        else:
+            layer.alpha.paste(255, (x0, y0, x1, y1))
+
+        after = layer.alpha.crop((x0, y0, x1, y1))
+
+        if np.array_equal(np.asarray(before), np.asarray(after) ):
+            return
 
         layer.alpha_dirty = True
         layer.recalculate_content_bbox()
 
+        index = self.layers.index(layer)
+
+        self.push_undo({
+            "type": "fill_alpha",
+            "index": index,
+            "rect": (x0, y0, x1, y1),
+            "before": before,
+            "after": after,
+        })
+
         self.update_layer_preview(layer)
 
+        self.update_history_buttons()
+        self.update_project_stats()
         self.view.viewport().update()
+
 
     def update_layer_preview_region(self, layer, rect):
         if not layer.item:
@@ -394,27 +412,14 @@ class MainWindow(QMainWindow, History, ProjectIO):
             return
 
         if self.mask_display_enabled:
-            alpha = layer.alpha.crop(
-                (src_x0, src_y0, src_x1, src_y1)
-            )
-
+            alpha = layer.alpha.crop((src_x0, src_y0, src_x1, src_y1))
             alpha_array = np.asarray(alpha, dtype=np.uint8)
-
             rgb_array = self.mask_color_lut[alpha_array]
+            rgb = Image.fromarray(rgb_array, "RGB").convert("RGBA")
 
-            rgb = Image.fromarray(
-                rgb_array,
-                "RGB",
-            ).convert("RGBA")
         else:
-            rgb = layer.image.crop(
-                (src_x0, src_y0, src_x1, src_y1)
-            )
-
-            alpha = layer.alpha.crop(
-                (src_x0, src_y0, src_x1, src_y1)
-            )
-
+            rgb = layer.image.crop((src_x0, src_y0, src_x1, src_y1))
+            alpha = layer.alpha.crop((src_x0, src_y0, src_x1, src_y1))
             rgb.putalpha(alpha)
 
         # ----------------------------------------
@@ -465,10 +470,9 @@ class MainWindow(QMainWindow, History, ProjectIO):
                 y = 0
 
             else:
-                x = 0#int((self.canvas_width - rgb.width) / 2)
-                y = 0#int((self.canvas_height - rgb.height) / 2)
+                x = 0
+                y = 0
 
-            # Уникальное имя
             base_name = "Clipboard"
             layer_name = base_name
             number = 2
@@ -1176,10 +1180,10 @@ class MainWindow(QMainWindow, History, ProjectIO):
         menu.addSeparator()
 
         fill_white_action = menu.addAction("Fill White")
-        fill_black_action = menu.addAction("Fill Black")
+        fill_white_action.triggered.connect(lambda checked=False, l=layer: self.fill_layer_alpha(l, True))
 
-        fill_white_action.triggered.connect(lambda checked=False, l=layer: self.fill_layer_alpha(l, 255))
-        fill_black_action.triggered.connect(lambda checked=False, l=layer: self.fill_layer_alpha(l, 0))
+        fill_black_action = menu.addAction("Fill Black")
+        fill_black_action.triggered.connect(lambda checked=False, l=layer: self.fill_layer_alpha(l, False))
 
         menu.addSeparator()
 
@@ -1764,6 +1768,28 @@ class MainWindow(QMainWindow, History, ProjectIO):
 
         if layer:
             layer.recalculate_content_bbox()
+
+        self.update_layer_preview(layer)
+
+    def apply_fill_alpha(self, action, undo):
+        index = action["index"]
+
+        if not 0 <= index < len(self.layers):
+            return
+
+        layer = self.layers[index]
+
+        x0, y0, x1, y1 = action["rect"]
+
+        alpha = action["before"] if undo else action["after"]
+
+        layer.alpha.paste(
+            alpha,
+            (x0, y0),
+        )
+
+        layer.alpha_dirty = True
+        layer.recalculate_content_bbox()
 
         self.update_layer_preview(layer)
 
