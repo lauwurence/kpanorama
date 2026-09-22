@@ -253,9 +253,7 @@ class LayerRowWidget(QWidget):
         self.window.status.setText(f"Coordinates copied: ({text})")
 
     def save_layer(self):
-        self.window.save_layer_to_project_folder(
-            self.layer
-        )
+        self.window.save_layer_to_project_folder(self.layer)
 
 
 # ============================================================
@@ -1483,7 +1481,7 @@ class MainWindow(QMainWindow):
         self.canvas_width = 0
         self.canvas_height = 0
 
-        self.max_preview_size = 1800
+        self.max_preview_size = 3000#1800
         self.preview_scale = 1.0
 
         self.brush_enabled = True
@@ -1670,10 +1668,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            qimage = qimage.convertToFormat(
-                QImage.Format.Format_RGBA8888
-            )
-
+            qimage = qimage.convertToFormat(QImage.Format.Format_RGBA8888)
             width = qimage.width()
             height = qimage.height()
 
@@ -1708,17 +1703,8 @@ class MainWindow(QMainWindow):
                 y = 0
 
             else:
-                # --------------------------------------------
-                # Новое изображение ставим по центру canvas.
-                # --------------------------------------------
-
-                x = int(
-                    (self.canvas_width - rgb.width) / 2
-                )
-
-                y = int(
-                    (self.canvas_height - rgb.height) / 2
-                )
+                x = 0#int((self.canvas_width - rgb.width) / 2)
+                y = 0#int((self.canvas_height - rgb.height) / 2)
 
             # Уникальное имя
             base_name = "Clipboard"
@@ -1886,16 +1872,10 @@ class MainWindow(QMainWindow):
 
         self.view = CanvasView(self)
         self.layer_list = LayerListWidget(self)
-        self.layer_list.itemDoubleClicked.connect(
-            self.start_layer_rename
-        )
+        self.layer_list.itemDoubleClicked.connect(self.start_layer_rename)
         self.layer_list.currentRowChanged.connect(self.layer_selected)
-        self.layer_list.setContextMenuPolicy(
-            Qt.ContextMenuPolicy.CustomContextMenu
-        )
-        self.layer_list.customContextMenuRequested.connect(
-            self.layer_context_menu
-        )
+        self.layer_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.layer_list.customContextMenuRequested.connect(self.layer_context_menu)
 
         splitter = QSplitter()
         splitter.addWidget(self.view)
@@ -1914,9 +1894,7 @@ class MainWindow(QMainWindow):
 
         file_button = QToolButton()
         file_button.setText("File")
-        file_button.setPopupMode(
-            QToolButton.ToolButtonPopupMode.InstantPopup
-        )
+        file_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
         file_menu = QMenu(self)
 
@@ -1935,9 +1913,7 @@ class MainWindow(QMainWindow):
 
         settings_button = QToolButton()
         settings_button.setText("Settings")
-        settings_button.setPopupMode(
-            QToolButton.ToolButtonPopupMode.InstantPopup
-        )
+        settings_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
         settings_menu = QMenu(self)
 
@@ -2017,36 +1993,20 @@ class MainWindow(QMainWindow):
 
         toolbar.addWidget(QLabel("Strength:"))
 
-        self.brush_opacity_slider = QSlider(
-            Qt.Orientation.Horizontal
-        )
+        self.brush_opacity_slider = QSlider(Qt.Orientation.Horizontal)
         self.brush_opacity_slider.setRange(1, 100)
-        self.brush_opacity_slider.setValue(
-            self.brush_strength
-        )
+        self.brush_opacity_slider.setValue(self.brush_strength)
         self.brush_opacity_slider.setFixedWidth(110)
-        self.brush_opacity_slider.setStyleSheet(
-            slider_style
-        )
-        self.brush_opacity_slider.setFocusPolicy(
-            Qt.FocusPolicy.NoFocus
-        )
-        self.brush_opacity_slider.valueChanged.connect(
-            self.set_brush_opacity
-        )
+        self.brush_opacity_slider.setStyleSheet(slider_style)
+        self.brush_opacity_slider.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.brush_opacity_slider.valueChanged.connect(self.set_brush_opacity)
 
-        toolbar.addWidget(
-            self.brush_opacity_slider
-        )
+        toolbar.addWidget(self.brush_opacity_slider)
 
-        self.brush_opacity_label = QLabel(
-            f"{self.brush_strength}%"
-        )
+        self.brush_opacity_label = QLabel(f"{self.brush_strength}%")
         self.brush_opacity_label.setFixedWidth(40)
 
-        toolbar.addWidget(
-            self.brush_opacity_label
-        )
+        toolbar.addWidget(self.brush_opacity_label)
 
         toolbar.addWidget(create_separator())
 
@@ -2057,36 +2017,20 @@ class MainWindow(QMainWindow):
 
         toolbar.addWidget(QLabel("Size:"))
 
-        self.brush_size_slider = QSlider(
-            Qt.Orientation.Horizontal
-        )
+        self.brush_size_slider = QSlider(Qt.Orientation.Horizontal)
         self.brush_size_slider.setRange(1, 3000)
-        self.brush_size_slider.setValue(
-            self.brush_size
-        )
+        self.brush_size_slider.setValue(self.brush_size)
         self.brush_size_slider.setFixedWidth(110)
-        self.brush_size_slider.setStyleSheet(
-            slider_style
-        )
-        self.brush_size_slider.setFocusPolicy(
-            Qt.FocusPolicy.NoFocus
-        )
-        self.brush_size_slider.valueChanged.connect(
-            self.set_brush_size
-        )
+        self.brush_size_slider.setStyleSheet(slider_style)
+        self.brush_size_slider.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.brush_size_slider.valueChanged.connect(self.set_brush_size)
 
-        toolbar.addWidget(
-            self.brush_size_slider
-        )
+        toolbar.addWidget(self.brush_size_slider)
 
-        self.brush_size_label = QLabel(
-            f"{self.brush_size}px"
-        )
+        self.brush_size_label = QLabel(f"{self.brush_size}px")
         self.brush_size_label.setFixedWidth(50)
 
-        toolbar.addWidget(
-            self.brush_size_label
-        )
+        toolbar.addWidget(self.brush_size_label)
 
         toolbar.addWidget(create_separator())
 
@@ -2097,39 +2041,20 @@ class MainWindow(QMainWindow):
 
         toolbar.addWidget(QLabel("Hardness:"))
 
-        self.brush_hardness_slider = QSlider(
-            Qt.Orientation.Horizontal
-        )
+        self.brush_hardness_slider = QSlider(Qt.Orientation.Horizontal)
         self.brush_hardness_slider.setRange(0, 100)
-        self.brush_hardness_slider.setValue(
-            int(self.brush_hardness)
-        )
+        self.brush_hardness_slider.setValue(int(self.brush_hardness))
         self.brush_hardness_slider.setFixedWidth(110)
-        self.brush_hardness_slider.setStyleSheet(
-            slider_style
-        )
-        self.brush_hardness_slider.setFocusPolicy(
-            Qt.FocusPolicy.NoFocus
-        )
-        self.brush_hardness_slider.valueChanged.connect(
-            self.set_brush_hardness
-        )
+        self.brush_hardness_slider.setStyleSheet(slider_style)
+        self.brush_hardness_slider.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.brush_hardness_slider.valueChanged.connect(self.set_brush_hardness)
 
-        toolbar.addWidget(
-            self.brush_hardness_slider
-        )
+        toolbar.addWidget(self.brush_hardness_slider)
 
-        self.brush_hardness_label = QLabel(
-            f"{self.brush_hardness:.0f}%"
-        )
+        self.brush_hardness_label = QLabel(f"{self.brush_hardness:.0f}%")
         self.brush_hardness_label.setFixedWidth(40)
 
-        toolbar.addWidget(
-            self.brush_hardness_label
-        )
-
-        # toolbar.addWidget(create_separator())
-
+        toolbar.addWidget(self.brush_hardness_label)
 
         self.status = QLabel("Drag and drop images")
         self.statusBar().addWidget(self.status)
@@ -2154,9 +2079,7 @@ class MainWindow(QMainWindow):
             """
         )
 
-        self.statusBar().addPermanentWidget(
-            self.zoom_label
-        )
+        self.statusBar().addPermanentWidget(self.zoom_label)
 
         self.project_stats.setAlignment(
             Qt.AlignmentFlag.AlignRight
@@ -2171,10 +2094,7 @@ class MainWindow(QMainWindow):
             """
         )
 
-        self.statusBar().addPermanentWidget(
-            self.project_stats
-        )
-
+        self.statusBar().addPermanentWidget(self.project_stats)
         self.update_project_stats()
 
         self.update_window_title()
@@ -2193,10 +2113,7 @@ class MainWindow(QMainWindow):
         layer_count = len(self.layers)
 
         # Количество видимых слоёв
-        visible_count = sum(
-            1 for layer in self.layers
-            if layer.visible
-        )
+        visible_count = sum(1 for layer in self.layers if layer.visible)
 
         # Информация о выбранном слое
         layer = self.selected_layer()
@@ -2217,30 +2134,21 @@ class MainWindow(QMainWindow):
             layer_position = "-"
 
         # Размер файла проекта
-        if self.project_path and os.path.isfile(
-            self.project_path
-        ):
-            file_size = os.path.getsize(
-                self.project_path
-            )
+        if self.project_path and os.path.isfile(self.project_path):
+            file_size = os.path.getsize(self.project_path)
 
             if file_size < 1024:
                 file_size_text = f"{file_size} B"
 
             elif file_size < 1024 ** 2:
-                file_size_text = (
-                    f"{file_size / 1024:.1f} KB"
-                )
+                file_size_text = f"{file_size / 1024:.1f} KB"
 
             elif file_size < 1024 ** 3:
-                file_size_text = (
-                    f"{file_size / (1024 ** 2):.1f} MB"
-                )
+                file_size_text = f"{file_size / (1024 ** 2):.1f} MB"
 
             else:
-                file_size_text = (
-                    f"{file_size / (1024 ** 3):.2f} GB"
-                )
+                file_size_text = f"{file_size / (1024 ** 3):.2f} GB"
+
         else:
             file_size_text = "-"
 
@@ -2286,15 +2194,10 @@ class MainWindow(QMainWindow):
 
         self.brush_size = value
 
-        # Обновляем ползунок, в том числе
-        # когда размер меняется через F.
         if self.brush_size_slider.value() != value:
             self.brush_size_slider.setValue(value)
 
-        # Обновляем число справа.
-        self.brush_size_label.setText(
-            f"{value}px"
-        )
+        self.brush_size_label.setText(f"{value}px")
 
         self.view.viewport().update()
 
@@ -2303,38 +2206,27 @@ class MainWindow(QMainWindow):
 
         self.brush_strength = value
 
-        # Strength 1..100 -> реальная сила 1..100%
         self.brush_opacity = value / 100.0
 
         if self.brush_opacity_slider.value() != value:
             self.brush_opacity_slider.setValue(value)
 
-        self.brush_opacity_label.setText(
-            f"{value}%"
-        )
+        self.brush_opacity_label.setText(f"{value}%")
 
         self.view.viewport().update()
 
     def set_brush_hardness(self, value):
-        value = max(
-            0.0,
-            min(100.0, float(value)),
-        )
+        value = max(0.0, min(100.0, float(value)))
 
         self.brush_hardness = value
 
-        # Обновляем ползунок при изменении через F.
         slider_value = int(round(value))
 
         if self.brush_hardness_slider.value() != slider_value:
-            self.brush_hardness_slider.setValue(
-                slider_value
-            )
+            self.brush_hardness_slider.setValue(slider_value)
 
         # Обновляем число справа.
-        self.brush_hardness_label.setText(
-            f"{value:.0f}%"
-        )
+        self.brush_hardness_label.setText(f"{value:.0f}%")
 
         self.view.viewport().update()
 
@@ -2459,7 +2351,7 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
 
         save_action = menu.addAction("Save as PNG")
-        replace_action = menu.addAction("Replace Contents")
+        replace_action = menu.addAction("Replace Image")
 
         menu.addSeparator()
 
@@ -2511,8 +2403,8 @@ class MainWindow(QMainWindow):
 
         new_name, ok = QInputDialog.getText(
             self,
-            "Переименовать слой",
-            "Название:",
+            "Rename Layer",
+            "Name:",
             text=old_name,
         )
 
@@ -2584,7 +2476,7 @@ class MainWindow(QMainWindow):
     def open_image(self):
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Добавить изображение",
+            "Add image",
             "",
             "Images (*.png *.jpg *.jpeg *.webp *.bmp *.tif *.tiff)",
         )
@@ -2643,15 +2535,14 @@ class MainWindow(QMainWindow):
 
                 self.canvas_width = rgb.width
                 self.canvas_height = rgb.height
+
             else:
                 rgb, alpha = self.load_image_file(
                     path,
                     background=False,
                 )
 
-            layer_name = os.path.splitext(
-                os.path.basename(path)
-            )[0]
+            layer_name = os.path.splitext(os.path.basename(path))[0]
 
             layer = Layer(
                 layer_name,
@@ -2711,14 +2602,8 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            rgb, alpha = self.load_image_file(
-                path,
-                background=index == 0,
-            )
-
-            layer_name = os.path.splitext(
-                os.path.basename(path)
-            )[0]
+            rgb, alpha = self.load_image_file(path, background=index == 0)
+            layer_name = os.path.splitext(os.path.basename(path))[0]
 
             new_layer = Layer(
                 layer_name,
@@ -2746,9 +2631,7 @@ class MainWindow(QMainWindow):
             self.update_window_title()
             self.update_history_buttons()
 
-            self.status.setText(
-                f"Изображение заменено: {new_layer.name}"
-            )
+            self.status.setText(f"Image replaced: {new_layer.name}")
 
         except Exception as e:
             QMessageBox.critical(
@@ -2790,13 +2673,9 @@ class MainWindow(QMainWindow):
         if not layer.item:
             return
 
-        preview = self.create_preview(
-            layer
-        )
+        preview = self.create_preview(layer)
 
-        qimage = pil_to_qimage(
-            preview
-        )
+        qimage = pil_to_qimage(preview)
 
         layer.preview_qimage = qimage
 
@@ -2804,28 +2683,21 @@ class MainWindow(QMainWindow):
             layer.item,
             LayerPreviewItem,
         ):
-            layer.item.set_image(
-                qimage
-            )
+            layer.item.set_image(qimage)
+
         else:
-            item = LayerPreviewItem(
-                qimage
-            )
+            item = LayerPreviewItem(qimage)
 
             item.setPos(
                 layer.x * self.preview_scale,
                 layer.y * self.preview_scale,
             )
 
-            item.setVisible(
-                layer.visible
-            )
+            item.setVisible(layer.visible)
 
             layer.item = item
 
-            self.view.scene().addItem(
-                item
-            )
+            self.view.scene().addItem(item)
 
     # ========================================================
     # Checkerboard background
@@ -2906,29 +2778,20 @@ class MainWindow(QMainWindow):
 
         for layer in self.layers:
             preview = self.create_preview(layer)
+            layer.preview_qimage = pil_to_qimage(preview)
 
-            layer.preview_qimage = pil_to_qimage(
-                preview
-            )
-
-            item = LayerPreviewItem(
-                layer.preview_qimage
-            )
+            item = LayerPreviewItem(layer.preview_qimage)
 
             item.setPos(
                 layer.x * self.preview_scale,
                 layer.y * self.preview_scale,
             )
 
-            item.setVisible(
-                layer.visible
-            )
+            item.setVisible(layer.visible)
 
             layer.item = item
 
-            self.view.scene().addItem(
-                item
-            )
+            self.view.scene().addItem(item)
 
         self.update_scene_rect()
 
@@ -3275,13 +3138,9 @@ class MainWindow(QMainWindow):
         x = int(layer.x + left)
         y = int(layer.y + top)
 
-        QApplication.clipboard().setText(
-            f"({x}, {y})"
-        )
+        QApplication.clipboard().setText(f"({x}, {y})")
 
-        self.status.setText(
-            f"Coordinates copied: ({x}, {y})",
-        )
+        self.status.setText(f"Layer saved: {os.path.basename(path)} ({x}, {y})")
 
     def save_layer_to_project_folder(self, layer):
         if not self.project_path:
@@ -3334,18 +3193,14 @@ class MainWindow(QMainWindow):
             x = int(layer.x + left)
             y = int(layer.y + top)
 
-            QApplication.clipboard().setText(
-                f"({x}, {y})"
-            )
+            QApplication.clipboard().setText(f"({x}, {y})")
 
-            self.status.setText(
-                f"Слой сохранён: {os.path.basename(path)}"
-            )
+            self.status.setText(f"Layer saved: {os.path.basename(path)} ({x}, {y})")
 
         except Exception as e:
             QMessageBox.critical(
                 self,
-                "Ошибка сохранения",
+                "Error saving",
                 str(e),
             )
 
@@ -3409,9 +3264,7 @@ class MainWindow(QMainWindow):
                         layer.get_image_data(),
                     )
 
-                    is_background = (
-                        i == 0 or layer is self.layers[0]
-                    )
+                    is_background = (i == 0) or (layer is self.layers[0])
 
                     alpha_name = None
                     content_alpha_name = None
@@ -3426,14 +3279,10 @@ class MainWindow(QMainWindow):
                             layer.get_alpha_data(),
                         )
 
-                        content_alpha_data = (
-                            layer.get_content_alpha_data()
-                        )
+                        content_alpha_data = layer.get_content_alpha_data()
 
                         if content_alpha_data:
-                            content_alpha_name = (
-                                f"content_alpha_{i}.png"
-                            )
+                            content_alpha_name = f"content_alpha_{i}.png"
 
                             z.writestr(
                                 content_alpha_name,
@@ -3471,7 +3320,7 @@ class MainWindow(QMainWindow):
             self.project_path = os.path.abspath(path)
 
             self.mark_project_saved()
-            self.status.setText("Проект сохранён")
+            self.status.setText("Project saved")
             self.update_project_stats()
 
             return True
@@ -3479,7 +3328,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(
                 self,
-                "Ошибка сохранения",
+                "Error saving",
                 str(e),
             )
             return False
@@ -3503,39 +3352,27 @@ class MainWindow(QMainWindow):
 
 
     def load_project_from_path(self, path):
+
         try:
             with zipfile.ZipFile(path, "r") as z:
-                project = json.loads(
-                    z.read("project.json")
-                )
+                project = json.loads(z.read("project.json"))
 
                 if project.get("version") != 10:
-                    raise ValueError(
-                        "Неподдерживаемая версия проекта"
-                    )
+                    raise ValueError("Unsupported project version")
 
                 self.layers.clear()
 
-                self.canvas_width, self.canvas_height = (
-                    project["canvas"]
-                )
+                self.canvas_width, self.canvas_height = project["canvas"]
 
-                for i, data in enumerate(
-                    project["layers"]
-                ):
+                for i, data in enumerate(project["layers"]):
                     image_name = data["image"]
-
-                    image_data = z.read(
-                        image_name
-                    )
+                    image_data = z.read(image_name)
 
                     rgb = Image.open(
                         io.BytesIO(image_data)
                     ).convert("RGB")
 
-                    is_background = (
-                        i == 0
-                    )
+                    is_background = i == 0
 
                     if is_background:
                         alpha = Image.new(
@@ -3606,9 +3443,7 @@ class MainWindow(QMainWindow):
 
                     # В проекте content_alpha хранится
                     # отдельно от текущей alpha.
-                    layer.content_alpha = (
-                        content_alpha
-                    )
+                    layer.content_alpha = content_alpha
 
                     # ВАЖНО:
                     # пересоздаём numpy-кэш именно
@@ -3630,9 +3465,7 @@ class MainWindow(QMainWindow):
                     layer.alpha_cache = alpha_data
                     layer.alpha_dirty = False
 
-                    layer.content_alpha_cache = (
-                        content_alpha_data
-                    )
+                    layer.content_alpha_cache = content_alpha_data
                     layer.content_alpha_dirty = False
 
                     self.layers.append(layer)
@@ -3642,27 +3475,21 @@ class MainWindow(QMainWindow):
 
             self.rebuild_scene()
 
-            self.project_path = os.path.abspath(
-                path
-            )
+            self.project_path = os.path.abspath(path)
 
             self.update_project_stats()
 
             if self.layers:
-                self.select_layer(
-                    len(self.layers) - 1
-                )
+                self.select_layer(len(self.layers) - 1)
 
             self.mark_project_saved()
 
-            self.status.setText(
-                "Проект загружен"
-            )
+            self.status.setText("Project loaded")
 
         except Exception as e:
             QMessageBox.critical(
                 self,
-                "Ошибка загрузки",
+                "Error loading",
                 str(e),
             )
 
@@ -3740,10 +3567,7 @@ window.show()
 if len(sys.argv) > 1:
     file_path = sys.argv[1]
 
-    if (
-        os.path.isfile(file_path)
-        and file_path.lower().endswith(".kpp")
-    ):
+    if os.path.isfile(file_path) and file_path.lower().endswith(".kpp"):
         QTimer.singleShot(
             0,
             lambda: window.load_project_from_path(file_path)

@@ -1,3 +1,4 @@
 *.kpp
 /__pycache__
 *.png
+*.psd
