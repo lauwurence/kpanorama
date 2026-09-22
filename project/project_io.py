@@ -18,40 +18,19 @@ class ProjectIO():
     ############################################################################
     # Alpha normalization
 
-    def _normalize_alpha_for_save(self, image, threshold=0.99):
+    def _normalize_alpha_for_save(self, image, threshold=0.975):
         """
         При сохранении округляет почти полностью непрозрачные
         пиксели до полной непрозрачности.
 
-        Alpha > 0.99:
-            0.9901 ... 1.0
-            ->
-            1.0
-
-        Для 8-bit alpha это означает:
-
-            253 -> 255
-            254 -> 255
-            255 -> 255
-
-        Значения 252 и ниже не изменяются.
-
         Исходное изображение в памяти не изменяется.
         """
 
-        alpha = np.asarray(
-            image,
-            dtype=np.uint8,
-        ).copy()
-
+        alpha = np.asarray(image, dtype=np.uint8).copy()
         threshold = int(threshold * 255)
-
         alpha[alpha > threshold] = 255
 
-        return Image.fromarray(
-            alpha,
-            "L",
-        )
+        return Image.fromarray(alpha, "L")
 
     def _get_normalized_alpha_data(self, layer):
         """
@@ -60,16 +39,9 @@ class ProjectIO():
         Используется только при сохранении проекта.
         """
 
-        alpha = self._normalize_alpha_for_save(
-            layer.alpha
-        )
-
+        alpha = self._normalize_alpha_for_save(layer.alpha)
         buffer = io.BytesIO()
-
-        alpha.save(
-            buffer,
-            format="PNG",
-        )
+        alpha.save(buffer, format="PNG")
 
         return buffer.getvalue()
 
@@ -78,16 +50,9 @@ class ProjectIO():
         Возвращает PNG-данные content_alpha после нормализации.
         """
 
-        content_alpha = self._normalize_alpha_for_save(
-            layer.content_alpha
-        )
-
+        content_alpha = self._normalize_alpha_for_save(layer.content_alpha)
         buffer = io.BytesIO()
-
-        content_alpha.save(
-            buffer,
-            format="PNG",
-        )
+        content_alpha.save(buffer, format="PNG")
 
         return buffer.getvalue()
 

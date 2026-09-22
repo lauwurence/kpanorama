@@ -344,7 +344,7 @@ class MainWindow(QMainWindow, History, ProjectIO):
         if white:
             layer.alpha = layer.content_alpha.copy()
         else:
-            layer.alpha.paste(255, (x0, y0, x1, y1))
+            layer.alpha.paste(0, (x0, y0, x1, y1))
 
         after = layer.alpha.crop((x0, y0, x1, y1))
 
