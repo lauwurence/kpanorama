@@ -1,11 +1,8 @@
 ################################################################################
 ## Main
 
-import io
-import json
 import os
 import sys
-import zipfile
 
 import numpy as np
 from PIL import Image
@@ -15,19 +12,14 @@ from PyQt6.QtGui import (
     QColor,
     QImage,
     QPainter,
-    QPen,
     QPixmap,
     QIcon,
-    QRadialGradient,
-    QGuiApplication,
     QImageReader,
 )
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
     QGraphicsPixmapItem,
-    QGraphicsScene,
-    QGraphicsView,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -50,7 +42,13 @@ from core.history import History
 from project.project_io import ProjectIO
 from ui.canvas import CanvasView
 
-APP_VERSION = (0, 1, 1)
+APP_VERSION = (0, 1, 2)
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ICON_DIR = os.path.join(BASE_DIR, "icons")
+
+def icon(name):
+    return QIcon(os.path.join(ICON_DIR, name))
 
 if sys.platform == "win32":
     import ctypes
@@ -122,7 +120,7 @@ class LayerRowWidget(QWidget):
 
         self.copy_button = QPushButton()
         self.copy_button.setFixedSize(24, 24)
-        self.copy_button.setIcon(QIcon("icons/copy_coordinates.svg"))
+        self.copy_button.setIcon(icon("copy_coordinates.svg"))
         self.copy_button.setIconSize(QSize(20, 20))
         self.copy_button.setFlat(True)
         self.copy_button.setToolTip("Copy layer coordinates")
@@ -131,7 +129,7 @@ class LayerRowWidget(QWidget):
 
         self.save_button = QPushButton()
         self.save_button.setFixedSize(24, 24)
-        self.save_button.setIcon(QIcon("icons/save_layer.svg"))
+        self.save_button.setIcon(icon("save_layer.svg"))
         self.save_button.setIconSize(QSize(20, 20))
         self.save_button.setFlat(True)
         self.save_button.setToolTip("Save layer (Shift + E)")
@@ -149,10 +147,10 @@ class LayerRowWidget(QWidget):
 
     def update_appearance(self):
         if self.layer.visible:
-            self.eye_button.setIcon(QIcon("icons/eye_show.svg"))
+            self.eye_button.setIcon(icon("eye_show.svg"))
             self.name_label.setStyleSheet("color: white;")
         else:
-            self.eye_button.setIcon(QIcon("icons/eye_hide.svg"))
+            self.eye_button.setIcon(icon("eye_hide.svg"))
             self.name_label.setStyleSheet("color: #777;")
 
         self.save_button.setStyleSheet(
@@ -282,7 +280,7 @@ class MainWindow(QMainWindow, History, ProjectIO):
         self.saved_history = ()
 
         self.setWindowTitle("")
-        self.setWindowIcon(QIcon("icons/icon.svg"))
+        self.setWindowIcon(icon("icon.svg"))
         self.resize(1450, 900)
 
         self.brush_size = 100
@@ -664,11 +662,11 @@ class MainWindow(QMainWindow, History, ProjectIO):
 
         toolbar.setIconSize(QSize(20, 20))
 
-        self.undo_action = toolbar.addAction(QIcon("icons/undo.svg"), "")
+        self.undo_action = toolbar.addAction(icon("undo.svg"), "")
         self.undo_action.setToolTip("Undo (Ctrl+Z)")
         self.undo_action.triggered.connect(self.undo)
 
-        self.redo_action = toolbar.addAction(QIcon("icons/redo.svg"), "")
+        self.redo_action = toolbar.addAction(icon("redo.svg"), "")
         self.redo_action.setToolTip("Redo (Ctrl+Shift+Z)")
         self.redo_action.triggered.connect(self.redo)
 
@@ -901,7 +899,7 @@ class MainWindow(QMainWindow, History, ProjectIO):
             widget.start_rename()
 
     def register_file_associations(self):
-        from .association import register_kpp_file_association
+        from association import register_kpp_file_association
 
         register_kpp_file_association()
 
@@ -1802,17 +1800,17 @@ class MainWindow(QMainWindow, History, ProjectIO):
 
         if self.can_undo:
             self.undo_action.setEnabled(True)
-            self.undo_action.setIcon(QIcon("icons/undo.svg"))
+            self.undo_action.setIcon(icon("undo.svg"))
         else:
             self.undo_action.setEnabled(False)
-            self.undo_action.setIcon(QIcon("icons/undo_inactive.svg"))
+            self.undo_action.setIcon(icon("undo_inactive.svg"))
 
         if self.can_redo:
             self.redo_action.setEnabled(True)
-            self.redo_action.setIcon(QIcon("icons/redo.svg"))
+            self.redo_action.setIcon(icon("redo.svg"))
         else:
             self.redo_action.setEnabled(False)
-            self.redo_action.setIcon(QIcon("icons/redo_inactive.svg"))
+            self.redo_action.setIcon(icon("redo_inactive.svg"))
 
     # ========================================================
     # Export PNG

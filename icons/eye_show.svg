@@ -1,7 +1,7 @@
 <svg width="72" height="72" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
 <g filter="url(#filter0_d_1169_9)">
-<path d="M62.0015 34.9657C63.3328 33.1971 63.3328 30.8057 62.0015 29.0343C57.8081 23.4657 47.7472 12 36.0012 12C24.2551 12 14.1943 23.4657 10.0009 29.0343C9.3522 29.8821 9 30.9257 9 32C9 33.0743 9.3522 34.1179 10.0009 34.9657C14.1943 40.5343 24.2551 52 36.0012 52C47.7472 52 57.8081 40.5343 62.0015 34.9657Z" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M36 40C40.4183 40 44 36.4183 44 32C44 27.5817 40.4183 24 36 24C31.5817 24 28 27.5817 28 32C28 36.4183 31.5817 40 36 40Z" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M61.0385 35.8174C62.3205 34.1373 62.3205 31.8654 61.0385 30.1826C57.0004 24.8924 47.3122 14 36.0011 14C24.6901 14 15.0019 24.8924 10.9638 30.1826C10.3392 30.988 10 31.9794 10 33C10 34.0206 10.3392 35.012 10.9638 35.8174C15.0019 41.1076 24.6901 52 36.0011 52C47.3122 52 57.0004 41.1076 61.0385 35.8174Z" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M36 41C40.4183 41 44 37.4183 44 33C44 28.5817 40.4183 25 36 25C31.5817 25 28 28.5817 28 33C28 37.4183 31.5817 41 36 41Z" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
 <defs>
 <filter id="filter0_d_1169_9" x="0" y="0" width="72" height="72" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
