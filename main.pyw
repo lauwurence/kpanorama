@@ -46,6 +46,9 @@ from PyQt6.QtWidgets import (
 )
 
 from layer import Layer, LayerPreviewItem
+from core.history import History
+from project.project_io import ProjectIO
+from ui.canvas import CanvasView
 
 APP_VERSION = (0, 1, 1)
 
@@ -95,6 +98,7 @@ class LayerRowWidget(QWidget):
         self.eye_button.setFixedSize(24, 24)
         self.eye_button.setIconSize(QSize(20, 20))
         self.eye_button.setFlat(True)
+        self.eye_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.eye_button.clicked.connect(
             lambda: self.window.toggle_layer_visibility(self.window.layers.index(self.layer))
         )
@@ -105,6 +109,7 @@ class LayerRowWidget(QWidget):
             self.name_label.sizePolicy().Policy.Expanding,
             self.name_label.sizePolicy().Policy.Preferred,
         )
+        self.name_label.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         # Поле для переименования
         self.name_edit = QLineEdit(layer.name)
@@ -122,14 +127,16 @@ class LayerRowWidget(QWidget):
         self.copy_button.setFlat(True)
         self.copy_button.setToolTip("Copy layer coordinates")
         self.copy_button.clicked.connect(self.copy_coordinates)
+        self.copy_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         self.save_button = QPushButton()
         self.save_button.setFixedSize(24, 24)
         self.save_button.setIcon(QIcon("icons/save_layer.svg"))
         self.save_button.setIconSize(QSize(20, 20))
         self.save_button.setFlat(True)
-        self.save_button.setToolTip("Save layer")
+        self.save_button.setToolTip("Save layer (Shift + E)")
         self.save_button.clicked.connect(self.save_layer)
+        self.save_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         layout.addWidget(self.eye_button)
         layout.addSpacing(2)
@@ -261,755 +268,10 @@ class LayerListWidget(QListWidget):
 
 
 # ============================================================
-# Canvas
-# ============================================================
-
-class CanvasView(QGraphicsView):
-
-    def __init__(self, window):
-        super().__init__()
-
-        self.window = window
-
-        self.setAcceptDrops(True)
-        self.setMouseTracking(True)
-        self.viewport().setMouseTracking(True)
-
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        self.setScene(QGraphicsScene(self))
-        self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-
-        self.painting = False
-        self.ctrl_brush = False
-        self.stroke_layer = None
-        self.stroke_patches = []
-        self.stroke_alpha_start = None
-        self.stroke_mask = None
-
-        self.cursor_pos = None
-
-        self.grabbing = False
-        self.grab_last_pos = None
-
-        # F + движение мыши
-        self.resizing_brush = False
-
-        self.brush_resize_start_x = 0
-        self.brush_resize_last_x = 0
-        self.brush_resize_start_size = 0
-
-        self.brush_hardness_start_y = 0
-        self.brush_hardness_start_value = 50.0
-
-        self.adjusting_brush_opacity = False
-
-        self.brush_opacity_start_y = 0
-        self.brush_opacity_start_x = 0
-        self.brush_strength_start_value = 100
-
-        self.brush_mask = None
-        self.brush_mask_key = None
-
-
-    # ========================================================
-    # Drag & Drop
-    # ========================================================
-
-    def dragEnterEvent(self, e):
-        if not e.mimeData().hasUrls():
-            e.ignore()
-            return
-
-        files = [ u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile() ]
-
-        valid_files = [ path for path in files
-            if (
-                path.lower().endswith(".kpp")
-                or path.lower().endswith((
-                    ".png",
-                    ".jpg",
-                    ".jpeg",
-                    ".webp",
-                    ".bmp",
-                    ".tif",
-                    ".tiff",
-                ))
-            )
-        ]
-
-        if valid_files:
-            e.acceptProposedAction()
-        else:
-            e.ignore()
-
-    def dragMoveEvent(self, e):
-        if not e.mimeData().hasUrls():
-            e.ignore()
-            return
-
-        files = [ u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile() ]
-
-        if any(
-            path.lower().endswith(".kpp")
-            or path.lower().endswith((
-                ".png",
-                ".jpg",
-                ".jpeg",
-                ".webp",
-                ".bmp",
-                ".tif",
-                ".tiff",
-            ))
-            for path in files
-        ):
-            e.acceptProposedAction()
-        else:
-            e.ignore()
-
-    def dropEvent(self, e):
-        files = [ u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile() ]
-
-        for path in files:
-
-            if not os.path.isfile(path):
-                continue
-
-            if path.lower().endswith(".kpp"):
-                self.window.load_project_from_path(path)
-
-            else:
-                self.window.add_image(path)
-
-        e.acceptProposedAction()
-
-    # ========================================================
-    # Zoom
-    # ========================================================
-
-    def wheelEvent(self, e):
-        old_pos = self.mapToScene(e.position().toPoint())
-
-        factor = 1.15 if e.angleDelta().y() > 0 else 1 / 1.15
-        self.scale(factor, factor)
-
-        new_pos = self.mapToScene(e.position().toPoint())
-        delta = new_pos - old_pos
-
-        self.translate(delta.x(), delta.y())
-
-        self.window.update_zoom_status()
-        self.viewport().update()
-
-        e.accept()
-
-
-    # ========================================================
-    # Mouse move
-    # ========================================================
-
-    def mouseMoveEvent(self, e):
-        self.cursor_pos = e.position()
-        self.viewport().update()
-
-        # ----------------------------------------------------
-        # F + движение = размер / жёсткость кисти
-        # ----------------------------------------------------
-
-        if self.resizing_brush:
-
-            # ====================================================
-            # Shift + F = сила кисти
-            # ====================================================
-
-            if self.adjusting_brush_opacity:
-                delta_x = e.position().x() - self.brush_opacity_start_x
-                delta_y = self.brush_opacity_start_y - e.position().y()
-                delta = delta_x + delta_y
-
-                new_strength = self.brush_strength_start_value + (delta * 0.5)
-                new_strength = max(1, min(100, int(new_strength)))
-
-                self.window.set_brush_opacity(new_strength)
-
-                self.viewport().update()
-                return
-
-            # ====================================================
-            # Обычный F
-            # ====================================================
-
-            delta_x = e.position().x() - self.brush_resize_last_x
-
-            if delta_x != 0:
-                current_size = self.window.brush_size
-                scale = max(1.0, current_size / 200.0)
-
-                new_size = max(1, int(current_size + delta_x * scale))
-                self.window.set_brush_size(new_size)
-
-                self.brush_resize_last_x = e.position().x()
-
-            delta_y = self.brush_hardness_start_y - e.position().y()
-
-            new_hardness = self.brush_hardness_start_value + (delta_y * 0.5)
-            new_hardness = max(0.0, min(100.0, new_hardness))
-
-            self.window.set_brush_hardness(new_hardness)
-
-            self.viewport().update()
-            return
-
-        # ----------------------------------------------------
-        # СКМ = Grab
-        # ----------------------------------------------------
-
-        if self.grabbing and self.grab_last_pos is not None:
-            delta = e.position() - self.grab_last_pos
-
-            self.grab_last_pos = e.position()
-
-            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - int(delta.x()))
-            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - int(delta.y()))
-
-            return
-
-        # ----------------------------------------------------
-        # ЛКМ = кисть
-        # ----------------------------------------------------
-
-        if self.painting and self.stroke_layer:
-            self.paint_at(e.position())
-            return
-
-        super().mouseMoveEvent(e)
-
-    def leaveEvent(self, e):
-        self.cursor_pos = None
-        self.viewport().update()
-        super().leaveEvent(e)
-
-    # ========================================================
-    # Brush cursor
-    # ========================================================
-
-    def paintEvent(self, e):
-        super().paintEvent(e)
-
-        p = QPainter(self.viewport())
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        # ========================================================
-        # Bounding boxes активного слоя
-        # ========================================================
-
-        layer = self.window.selected_layer()
-
-        if layer and layer.visible and layer is not self.window.layers[0]:
-            s = self.window.preview_scale
-
-            p.setBrush(Qt.BrushStyle.NoBrush)
-
-            # ====================================================
-            # Original bounding box
-            # Полный размер исходного изображения
-            # ====================================================
-
-            original_bbox = layer.original_visible_bbox()
-
-            if original_bbox:
-                x0, y0, x1, y1 = original_bbox
-
-                original_x0 = (layer.x + x0) * s
-                original_y0 = (layer.y + y0) * s
-                original_x1 = (layer.x + x1) * s
-                original_y1 = (layer.y + y1) * s
-
-                p1 = self.mapFromScene(original_x0, original_y0)
-                p2 = self.mapFromScene(original_x1, original_y1)
-
-                p.setPen(QPen(QColor(255, 255, 0, 220), 1, Qt.PenStyle.DashLine))
-                p.drawRect(p1.x(), p1.y(), p2.x() - p1.x(), p2.y() - p1.y())
-
-            p1 = self.mapFromScene(original_x0, original_y0)
-            p2 = self.mapFromScene(original_x1, original_y1)
-
-            p.setPen(QPen(QColor(255, 255, 0, 220), 1, Qt.PenStyle.DashLine))
-            p.drawRect(p1.x(), p1.y(), p2.x() - p1.x(), p2.y() - p1.y())
-
-            # ====================================================
-            # Visible bounding box
-            # Существующий bbox по применённой маске
-            # ====================================================
-
-            bbox = layer.visible_bbox()
-
-            if bbox:
-                x0, y0, x1, y1 = bbox
-
-                scene_x0 = (layer.x + x0) * s
-                scene_y0 = (layer.y + y0) * s
-                scene_x1 = (layer.x + x1) * s
-                scene_y1 = (layer.y + y1) * s
-
-                p1 = self.mapFromScene(scene_x0, scene_y0)
-                p2 = self.mapFromScene(scene_x1, scene_y1)
-
-                p.setPen(QPen(QColor(255, 255, 255, 220), 1, Qt.PenStyle.DashLine))
-                p.drawRect(p1.x(), p1.y(), p2.x() - p1.x(), p2.y() - p1.y())
-
-        # ========================================================
-        # Курсор кисти
-        # ========================================================
-
-        if self.cursor_pos is None or not self.window.brush_enabled:
-            p.end()
-            return
-
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        zoom = self.transform().m11()
-
-        radius = self.window.brush_size * self.window.preview_scale * zoom
-
-        if radius < 1:
-            p.end()
-            return
-
-        if self.resizing_brush and self.adjusting_brush_opacity:
-            opacity = self.window.brush_opacity
-            strength = self.window.brush_strength
-
-            alpha = int(opacity * 255)
-
-            p.setBrush(QColor(180, 180, 180, alpha))
-            p.setPen(QPen(QColor(230, 230, 230, 220), 2))
-            p.drawEllipse(self.cursor_pos, radius, radius)
-            p.setPen(QColor(255, 255, 255, 230))
-
-            p.drawText(
-                round(self.cursor_pos.x() + radius + 10),
-                round(self.cursor_pos.y() - 10),
-                f"Strength {strength}%",
-            )
-
-            p.end()
-            return
-
-        # ========================================================
-        # Preview мягкости при зажатой F
-        # ========================================================
-
-        if self.resizing_brush:
-            hardness = self.window.brush_hardness / 100.0
-
-            fade_start = hardness
-            fade_start = max(0.0, min(0.99, fade_start))
-
-            gradient = QRadialGradient(self.cursor_pos, radius)
-            gradient.setColorAt(0.0, QColor(220, 220, 220, 75))
-
-            if fade_start > 0.0:
-                gradient.setColorAt(fade_start, QColor(220, 220, 220, 75))
-
-            gradient.setColorAt(1.0, QColor(220, 220, 220, 0))
-
-            # Мягкая внутренняя часть.
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(gradient)
-            p.drawEllipse(self.cursor_pos, radius, radius)
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.setPen(QPen(QColor(255, 255, 255, 230), 2))
-            p.drawEllipse(self.cursor_pos, radius, radius)
-
-            # Текст.
-            p.setPen(QColor(255, 255, 255, 230))
-
-            text = f"Size {self.window.brush_size}px  Hardness {self.window.brush_hardness:.0f}%"
-
-            p.drawText(
-                round(self.cursor_pos.x() + radius + 10),
-                round(self.cursor_pos.y() - 10),
-                text,
-            )
-
-        else:
-            # ====================================================
-            # Обычный курсор кисти
-            # ====================================================
-
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.setPen(QPen(QColor(255, 255, 255, 230), 2))
-            p.drawEllipse(self.cursor_pos, radius, radius)
-            p.setPen(QPen(QColor(0, 0, 0, 180), 1))
-            p.drawEllipse(self.cursor_pos, radius + 1, radius + 1)
-
-        p.end()
-
-    # ========================================================
-    # Keyboard
-    # ========================================================
-
-    def keyPressEvent(self, e):
-
-        if e.key() == Qt.Key.Key_V and e.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            clipboard = QGuiApplication.clipboard()
-            mime = clipboard.mimeData()
-
-            if mime.hasImage():
-                print(mime)
-                image = clipboard.image()
-
-                if not image.isNull():
-                    self.window.add_image_from_clipboard(image)
-
-                    e.accept()
-                    return
-
-        if e.key() == Qt.Key.Key_Control:
-            self.ctrl_brush = True
-            e.accept()
-            return
-
-        if e.nativeScanCode() == 33 and not e.isAutoRepeat():
-            local_pos = self.mapFromGlobal(self.cursor().pos())
-
-            self.resizing_brush = True
-            self.brush_resize_last_x = local_pos.x()
-
-            self.brush_resize_start_x = local_pos.x()
-            self.brush_resize_start_size = self.window.brush_size
-
-            self.brush_hardness_start_y = local_pos.y()
-            self.brush_hardness_start_value = self.window.brush_hardness
-
-            # ================================================
-            # Shift + F = регулировка силы
-            # ================================================
-
-            self.adjusting_brush_opacity = bool(e.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-
-            if self.adjusting_brush_opacity:
-                self.brush_opacity_start_x = local_pos.x()
-                self.brush_opacity_start_y = local_pos.y()
-                self.brush_strength_start_value = self.window.brush_strength
-                self.setCursor(Qt.CursorShape.SizeBDiagCursor)
-
-            else:
-                self.setCursor( Qt.CursorShape.SizeAllCursor)
-
-            self.viewport().update()
-
-            e.accept()
-            return
-
-        super().keyPressEvent(e)
-
-
-    def keyReleaseEvent(self, e):
-        if e.key() == Qt.Key.Key_Control:
-            self.ctrl_brush = False
-            e.accept()
-            return
-
-        if e.nativeScanCode() == 33 and not e.isAutoRepeat():
-
-            self.resizing_brush = False
-            self.adjusting_brush_opacity = False
-
-            if not self.grabbing:
-                self.setCursor(Qt.CursorShape.ArrowCursor)
-
-            self.viewport().update()
-
-            e.accept()
-            return
-
-        super().keyReleaseEvent(e)
-
-
-    # ========================================================
-    # Mouse press
-    # ========================================================
-
-    def mousePressEvent(self, e):
-        # ----------------------------------------------------
-        # СКМ = Grab
-        # ----------------------------------------------------
-
-        if e.button() == Qt.MouseButton.MiddleButton:
-            self.grabbing = True
-            self.grab_last_pos = e.position()
-            self.setCursor(Qt.CursorShape.ClosedHandCursor)
-
-            e.accept()
-            return
-
-        # ----------------------------------------------------
-        # ЛКМ = кисть
-        # ----------------------------------------------------
-
-        if e.button() == Qt.MouseButton.LeftButton and self.window.brush_enabled:
-            layer = self.window.selected_layer()
-
-            if layer is self.window.layers[0]:
-                return
-
-            if layer:
-                self.painting = True
-                self.stroke_layer = layer
-                self.stroke_patches = []
-
-                # Снимок альфы в начале текущего мазка.
-                self.stroke_alpha_start = np.asarray(layer.alpha, dtype=np.uint8).copy()
-
-                # Накопительная маска текущего мазка.
-                self.stroke_mask = np.zeros(
-                    (
-                        layer.alpha.height,
-                        layer.alpha.width,
-                    ),
-                    dtype=np.float32,
-                )
-
-                self.paint_at(e.position())
-                return
-
-        super().mousePressEvent(e)
-
-    # ========================================================
-    # Mouse release
-    # ========================================================
-
-    def mouseReleaseEvent(self, e):
-        # ----------------------------------------------------
-        # СКМ = Grab
-        # ----------------------------------------------------
-
-        if e.button() == Qt.MouseButton.MiddleButton:
-            self.grabbing = False
-            self.grab_last_pos = None
-            self.setCursor(Qt.CursorShape.ArrowCursor)
-
-            e.accept()
-            return
-
-        # ----------------------------------------------------
-        # ЛКМ = завершение мазка
-        # ----------------------------------------------------
-
-        if e.button() == Qt.MouseButton.LeftButton:
-            if self.painting:
-                self.painting = False
-
-                if self.stroke_layer and self.stroke_patches:
-                    self.window.finish_brush_action(self.stroke_layer, self.stroke_patches)
-                    self.stroke_layer.recalculate_content_bbox()
-
-                self.stroke_layer = None
-                self.stroke_patches = []
-
-                self.stroke_alpha_start = None
-                self.stroke_mask = None
-
-                self.viewport().update()
-
-                e.accept()
-                return
-
-        super().mouseReleaseEvent(e)
-
-
-    # ========================================================
-    # Painting
-    # ========================================================
-
-    def paint_at(self, pos):
-        layer = self.stroke_layer
-
-        if not layer:
-            return
-
-        if layer is self.window.layers[0]:
-            return
-
-        if self.stroke_alpha_start is None:
-            return
-
-        if self.stroke_mask is None:
-            return
-
-        scene_pos = self.mapToScene(int(pos.x()), int(pos.y()))
-
-        s = self.window.preview_scale
-
-        cx = int(scene_pos.x() / s) - layer.x
-        cy = int(scene_pos.y() / s) - layer.y
-
-        r = self.window.brush_size
-
-        if r <= 0:
-            return
-
-        x0 = max(0, cx - r)
-        y0 = max(0, cy - r)
-        x1 = min(layer.alpha.width, cx + r + 1)
-        y1 = min(layer.alpha.height, cy + r + 1)
-
-        if x1 <= x0 or y1 <= y0:
-            return
-
-        mask = self.get_brush_mask()
-
-        mx0 = x0 - (cx - r)
-        my0 = y0 - (cy - r)
-
-        mx1 = mx0 + (x1 - x0)
-        my1 = my0 + (y1 - y0)
-
-        brush_strength = mask[my0:my1, mx0:mx1]
-        stroke_mask = self.stroke_mask[y0:y1, x0:x1]
-
-        old_mask = stroke_mask.copy()
-
-        np.maximum(stroke_mask, brush_strength, out=stroke_mask)
-
-        if np.array_equal(old_mask, stroke_mask):
-            return
-
-        start_alpha = self.stroke_alpha_start[y0:y1, x0:x1].astype(
-            np.float32,
-            copy=False,
-        )
-
-        if not self.ctrl_brush:
-            content = layer.content_alpha_array[y0:y1, x0:x1]
-            result = start_alpha + (content - start_alpha) * stroke_mask
-            result = np.minimum(result, content)
-
-        else:
-            result = start_alpha * (1.0 - stroke_mask)
-
-        result = np.clip(result, 0, 255).astype(np.uint8)
-
-        # ------------------------------------------------
-        # Undo patch
-        # ------------------------------------------------
-
-        before_array = self.stroke_alpha_start[y0:y1, x0:x1]
-
-        before = Image.fromarray(before_array.copy(), "L")
-        after = Image.fromarray(result, "L")
-
-        layer.alpha.paste(after, (x0, y0))
-
-        if not np.array_equal(before_array, result):
-            self.stroke_patches.append(
-                (
-                    (x0, y0, x1, y1),
-                    before,
-                    after.copy(),
-                )
-            )
-
-        layer.alpha_dirty = True
-
-        self.window.update_layer_preview_region(layer, (x0, y0, x1, y1))
-
-
-    def get_brush_mask(self):
-        r = self.window.brush_size
-        hardness = self.window.brush_hardness
-        opacity = self.window.brush_opacity
-
-        key = (r, round(hardness, 3), round(opacity, 4))
-
-        if self.brush_mask is not None and self.brush_mask_key == key:
-            return self.brush_mask
-
-        size = r * 2 + 1
-
-        yy, xx = np.ogrid[:size, :size]
-
-        dx = xx - r
-        dy = yy - r
-
-        dist = np.sqrt(dx * dx + dy * dy)
-
-        t = np.clip(dist / max(1, r), 0.0, 1.0)
-
-        hardness_value = hardness / 100.0
-        hard_edge = hardness_value * 0.95
-
-        if hard_edge >= 0.999:
-            edge = np.clip((1.0 - t) / 0.05, 0.0, 1.0)
-            strength = edge
-
-        else:
-            fade = np.clip((t - hard_edge) / (1.0 - hard_edge), 0.0, 1.0)
-            fade = fade * fade * (3.0 - 2.0 * fade)
-
-            strength = 1.0 - fade
-
-        strength *= opacity
-
-        self.brush_mask = strength.astype(np.float32)
-        self.brush_mask_key = key
-
-        return self.brush_mask
-
-
-    def erase_alpha(self, layer, cx, cy):
-        r = self.window.brush_size
-
-        if r <= 0:
-            return
-
-        x0 = max(0, cx - r)
-        y0 = max(0, cy - r)
-        x1 = min(layer.alpha.width, cx + r + 1)
-        y1 = min(layer.alpha.height, cy + r + 1)
-
-        if x1 <= x0 or y1 <= y0:
-            return
-
-        mask = self.get_brush_mask()
-
-        mx0 = x0 - (cx - r)
-        my0 = y0 - (cy - r)
-
-        mx1 = mx0 + (x1 - x0)
-        my1 = my0 + (y1 - y0)
-
-        strength = mask[my0:my1, mx0:mx1]
-
-        arr = np.asarray(layer.alpha.crop((x0, y0, x1, y1)), dtype=np.float32)
-
-        if not self.ctrl_brush:
-            content = np.asarray(
-                layer.content_alpha.crop((x0, y0, x1, y1)),
-                dtype=np.float32,
-            )
-
-            arr += 255.0 * strength
-
-            # Нельзя восстановить прозрачность
-            # выше исходной альфа-маски.
-            arr = np.minimum(arr, content)
-
-        else:
-            arr *= 1.0 - strength
-
-        arr = np.clip(arr, 0, 255).astype(np.uint8)
-
-        layer.alpha.paste(Image.fromarray(arr, "L"), (x0, y0))
-
-# ============================================================
 # Main Window
 # ============================================================
 
-class MainWindow(QMainWindow):
+class MainWindow(QMainWindow, History, ProjectIO):
 
     def __init__(self):
         super().__init__()
@@ -1023,6 +285,10 @@ class MainWindow(QMainWindow):
         self.setWindowIcon(QIcon("icons/icon.svg"))
         self.resize(1450, 900)
 
+        self.brush_size = 100
+        self.brush_strength = 100
+        self.brush_hardness = 50
+
         self.layers = []
 
         self.canvas_width = 0
@@ -1031,14 +297,11 @@ class MainWindow(QMainWindow):
         self.max_preview_size = 3000
         self.preview_scale = 1.0
 
-        self.brush_enabled = True
-        self.brush_size = 100
-        self.brush_strength = 100
-        self.brush_opacity = 1.0
-        self.brush_hardness = 50.0
+        # Режим визуализации alpha-маски
+        self.mask_display_enabled = False
+        self.mask_color_lut = self.create_mask_color_lut()
 
-        self.undo_stack = []
-        self.redo_stack = []
+        self.solo_mode_enabled = False
 
         self.setup_ui()
         self.update_window_title()
@@ -1047,6 +310,25 @@ class MainWindow(QMainWindow):
 
         if geometry:
             self.restoreGeometry(geometry)
+
+    def create_mask_color_lut(self):
+        lut = np.zeros((256, 3), dtype=np.uint8)
+
+        # alpha = 0 -> blue
+        lut[0] = (0, 0, 255)
+
+        # 0 < alpha < 1 -> green -> red
+        values = np.arange(1, 255, dtype=np.float32)
+
+        t = (values - 1.0) / 253.0
+
+        lut[1:255, 0] = np.round(255.0 * t).astype(np.uint8)
+        lut[1:255, 1] = np.round(255.0 * (1.0 - t)).astype(np.uint8)
+
+        # alpha = 1 -> white
+        lut[255] = (255, 255, 255)
+
+        return lut
 
     def fill_layer_alpha(self, layer, value):
 
@@ -1076,6 +358,8 @@ class MainWindow(QMainWindow):
     def update_layer_preview_region(self, layer, rect):
         if not layer.item:
             return
+
+        layer.preview_mask_qimage = None
 
         if not isinstance(layer.item, LayerPreviewItem):
             self.update_layer_preview(layer)
@@ -1109,13 +393,29 @@ class MainWindow(QMainWindow):
         if src_x1 <= src_x0 or src_y1 <= src_y0:
             return
 
-        # RGB patch
-        rgb = layer.image.crop((src_x0, src_y0, src_x1, src_y1))
+        if self.mask_display_enabled:
+            alpha = layer.alpha.crop(
+                (src_x0, src_y0, src_x1, src_y1)
+            )
 
-        # Alpha patch
-        alpha = layer.alpha.crop((src_x0, src_y0, src_x1, src_y1))
+            alpha_array = np.asarray(alpha, dtype=np.uint8)
 
-        rgb.putalpha(alpha)
+            rgb_array = self.mask_color_lut[alpha_array]
+
+            rgb = Image.fromarray(
+                rgb_array,
+                "RGB",
+            ).convert("RGBA")
+        else:
+            rgb = layer.image.crop(
+                (src_x0, src_y0, src_x1, src_y1)
+            )
+
+            alpha = layer.alpha.crop(
+                (src_x0, src_y0, src_x1, src_y1)
+            )
+
+            rgb.putalpha(alpha)
 
         # ----------------------------------------
         # Очень важно:
@@ -1193,13 +493,11 @@ class MainWindow(QMainWindow):
             # Undo / Redo
             # ------------------------------------------------
 
-            self.undo_stack.append({
+            self.push_undo({
                 "type": "add",
                 "index": index,
                 "layer": layer,
             })
-
-            self.redo_stack.clear()
 
             self.update_window_title()
             self.update_history_buttons()
@@ -1213,11 +511,8 @@ class MainWindow(QMainWindow):
     # Project state
     # ========================================================
 
-    def current_history(self):
-        return tuple(id(action) for action in self.undo_stack)
-
     def has_unsaved_changes(self):
-        return self.current_history() != self.saved_history
+        return self.current_history != self.saved_history
 
     def update_window_title(self):
         if self.project_path:
@@ -1233,7 +528,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(title)
 
     def mark_project_saved(self):
-        self.saved_history = self.current_history()
+        self.saved_history = self.current_history
         self.update_window_title()
 
     def update_project_title(self):
@@ -1347,7 +642,11 @@ class MainWindow(QMainWindow):
         settings_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
         settings_menu = QMenu(self)
-        settings_menu.addAction("Register File Associations", self.register_file_associations)
+
+        settings_menu.addAction(
+            "Register File Associations",
+            self.register_file_associations,
+        )
 
         settings_button.setMenu(settings_menu)
 
@@ -1362,11 +661,11 @@ class MainWindow(QMainWindow):
         toolbar.setIconSize(QSize(20, 20))
 
         self.undo_action = toolbar.addAction(QIcon("icons/undo.svg"), "")
-        self.undo_action.setToolTip("Undo")
+        self.undo_action.setToolTip("Undo (Ctrl+Z)")
         self.undo_action.triggered.connect(self.undo)
 
         self.redo_action = toolbar.addAction(QIcon("icons/redo.svg"), "")
-        self.redo_action.setToolTip("Redo")
+        self.redo_action.setToolTip("Redo (Ctrl+Shift+Z)")
         self.redo_action.triggered.connect(self.redo)
 
         toolbar.addWidget(create_separator())
@@ -1390,7 +689,6 @@ class MainWindow(QMainWindow):
             QSlider::sub-page:horizontal {
                 background: #8a8a8a;
                 border-radius: 3px;
-                min-width: 6px;
             }
 
             QSlider::add-page:horizontal {
@@ -1399,13 +697,15 @@ class MainWindow(QMainWindow):
             }
 
             QSlider::handle:horizontal {
-                width: 0px;
-                height: 0px;
+                width: 6px;
+                height: 6px;
                 margin: 0px;
-                background: transparent;
+                background: #8a8a8a;
                 border: none;
+                border-radius: 3px;
             }
         """
+
 
         # ----------------------------------------------------
         # Strength
@@ -1413,20 +713,20 @@ class MainWindow(QMainWindow):
 
         toolbar.addWidget(QLabel("Strength:"))
 
-        self.brush_opacity_slider = QSlider(Qt.Orientation.Horizontal)
-        self.brush_opacity_slider.setRange(1, 100)
-        self.brush_opacity_slider.setValue(self.brush_strength)
-        self.brush_opacity_slider.setFixedWidth(110)
-        self.brush_opacity_slider.setStyleSheet(slider_style)
-        self.brush_opacity_slider.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.brush_opacity_slider.valueChanged.connect(self.set_brush_opacity)
+        self.brush_strength_slider = QSlider(Qt.Orientation.Horizontal)
+        self.brush_strength_slider.setRange(0, 100)
+        self.brush_strength_slider.setValue(int(self.brush_strength))
+        self.brush_strength_slider.setFixedWidth(110)
+        self.brush_strength_slider.setStyleSheet(slider_style)
+        self.brush_strength_slider.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.brush_strength_slider.valueChanged.connect(self.set_brush_strength)
 
-        toolbar.addWidget(self.brush_opacity_slider)
+        toolbar.addWidget(self.brush_strength_slider)
 
-        self.brush_opacity_label = QLabel(f"{self.brush_strength}%")
-        self.brush_opacity_label.setFixedWidth(40)
+        self.brush_strength_label = QLabel(f"{int(self.brush_strength)}%")
+        self.brush_strength_label.setFixedWidth(40)
 
-        toolbar.addWidget(self.brush_opacity_label)
+        toolbar.addWidget(self.brush_strength_label)
 
         toolbar.addWidget(create_separator())
 
@@ -1478,16 +778,33 @@ class MainWindow(QMainWindow):
         self.statusBar().addWidget(self.status)
 
         # ----------------------------------------------------
+        # Transparency Mask
+        # ----------------------------------------------------
+
+        toolbar.addWidget(create_separator())
+
+        self.mask_display_action = toolbar.addAction("Visualize Mask")
+        self.mask_display_action.setCheckable(True)
+        self.mask_display_action.setChecked(self.mask_display_enabled)
+        self.mask_display_action.setToolTip("Display Transparency Mask (V)")
+        self.mask_display_action.triggered.connect(self.toggle_mask_display)
+
+        toolbar.addWidget(create_separator())
+
+        self.solo_mode_action = toolbar.addAction("Solo Mode")
+        self.solo_mode_action.setCheckable(True)
+        self.solo_mode_action.setChecked(self.solo_mode_enabled)
+        self.solo_mode_action.setToolTip("Show only the selected layer (S)")
+        self.solo_mode_action.triggered.connect(self.toggle_solo_mode)
+
+        # ----------------------------------------------------
         # Статистика проекта
         # ----------------------------------------------------
 
         self.project_stats = QLabel()
 
         self.zoom_label = QLabel("Zoom: 100%")
-        self.zoom_label.setAlignment(
-            Qt.AlignmentFlag.AlignRight
-            | Qt.AlignmentFlag.AlignVCenter
-        )
+        self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.zoom_label.setStyleSheet(
             """
             QLabel {
@@ -1499,10 +816,7 @@ class MainWindow(QMainWindow):
 
         self.statusBar().addPermanentWidget(self.zoom_label)
 
-        self.project_stats.setAlignment(
-            Qt.AlignmentFlag.AlignRight
-            | Qt.AlignmentFlag.AlignVCenter
-        )
+        self.project_stats.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.project_stats.setStyleSheet(
             """
             QLabel {
@@ -1587,10 +901,104 @@ class MainWindow(QMainWindow):
 
         register_kpp_file_association()
 
-        QMessageBox.information(self,
-            "File Associations",
-            ".kpp file association registered.",
-        )
+        QMessageBox.information(self, "File Associations", ".kpp file association registered.")
+
+    # ========================================================
+    # Alpha mask display mode
+    # ========================================================
+
+    def toggle_mask_display(self, enabled=None):
+        if enabled is None:
+            enabled = not self.mask_display_enabled
+
+        enabled = bool(enabled)
+
+        if enabled == self.mask_display_enabled:
+            return
+
+        self.mask_display_enabled = enabled
+
+        if hasattr(self, "mask_display_action"):
+            self.mask_display_action.setChecked(enabled)
+
+        for layer in self.layers:
+            if not layer.item:
+                continue
+
+            qimage = self.get_preview_qimage(
+                layer,
+                mask=enabled,
+            )
+
+            layer.item.set_image(qimage)
+
+            if layer.mask_dirty:
+                layer.mask_dirty = False
+
+                self.update_layer_preview(layer)
+
+        self.view.viewport().update()
+
+        if enabled:
+            self.status.setText("Transparency mask display enabled")
+        else:
+            self.status.setText("Normal image display enabled")
+
+
+    # ========================================================
+    # Solo layer display mode
+    # ========================================================
+
+    def toggle_solo_mode(self, enabled=None):
+
+        if enabled is None:
+            enabled = not self.solo_mode_enabled
+
+        enabled = bool(enabled)
+
+        if enabled == self.solo_mode_enabled:
+            return
+
+        self.solo_mode_enabled = enabled
+
+        if hasattr(self, "solo_mode_action"):
+            self.solo_mode_action.setChecked(enabled)
+
+        self.update_solo_visibility()
+
+        if enabled:
+            self.status.setText("Solo mode enabled")
+        else:
+            self.status.setText("Solo mode disabled")
+
+
+    def update_solo_visibility(self):
+
+        selected = self.selected_layer()
+
+        for layer in self.layers:
+
+            if not layer.item:
+                continue
+
+            if self.solo_mode_enabled:
+
+                # В Solo Mode показываем только выбранный слой.
+                layer.item.setVisible(
+                    layer is selected
+                )
+
+            else:
+
+                # Обычный режим — возвращаем реальные
+                # состояния eye каждой строки.
+                layer.item.setVisible(
+                    layer.visible
+                )
+
+        self.layer_list.viewport().update()
+        self.view.viewport().update()
+
 
     # ========================================================
     # Zoom
@@ -1616,16 +1024,15 @@ class MainWindow(QMainWindow):
 
         self.view.viewport().update()
 
-    def set_brush_opacity(self, value):
+    def set_brush_strength(self, value):
         value = max(1, min(100, int(value)))
 
         self.brush_strength = value
-        self.brush_opacity = value / 100.0
 
-        if self.brush_opacity_slider.value() != value:
-            self.brush_opacity_slider.setValue(value)
+        if self.brush_strength_slider.value() != value:
+            self.brush_strength_slider.setValue(value)
 
-        self.brush_opacity_label.setText(f"{value}%")
+        self.brush_strength_label.setText(f"{value}%")
 
         self.view.viewport().update()
 
@@ -1711,12 +1118,11 @@ class MainWindow(QMainWindow):
 
         self.layers = new_order
 
-        self.undo_stack.append({
+        self.push_undo({
             "type": "reorder",
             "old_ids": old_ids,
             "new_ids": new_ids,
         })
-        self.redo_stack.clear()
 
         self.rebuild_scene()
 
@@ -1772,13 +1178,8 @@ class MainWindow(QMainWindow):
         fill_white_action = menu.addAction("Fill White")
         fill_black_action = menu.addAction("Fill Black")
 
-        fill_white_action.triggered.connect(
-            lambda checked=False, l=layer: self.fill_layer_alpha(l, 255)
-        )
-
-        fill_black_action.triggered.connect(
-            lambda checked=False, l=layer: self.fill_layer_alpha(l, 0)
-        )
+        fill_white_action.triggered.connect(lambda checked=False, l=layer: self.fill_layer_alpha(l, 255))
+        fill_black_action.triggered.connect(lambda checked=False, l=layer: self.fill_layer_alpha(l, 0))
 
         menu.addSeparator()
 
@@ -1836,13 +1237,12 @@ class MainWindow(QMainWindow):
             if row_widget:
                 row_widget.name_label.setText(new_name)
 
-        self.undo_stack.append({
+        self.push_undo({
             "type": "rename",
             "index": index,
             "old_name": old_name,
             "new_name": new_name,
         })
-        self.redo_stack.clear()
 
         self.update_history_buttons()
         self.update_window_title()
@@ -1860,7 +1260,15 @@ class MainWindow(QMainWindow):
         layer.visible = not layer.visible
 
         if layer.item:
-            layer.item.setVisible(layer.visible)
+
+            if self.solo_mode_enabled:
+                layer.item.setVisible(
+                    layer is self.selected_layer()
+                )
+            else:
+                layer.item.setVisible(
+                    layer.visible
+                )
 
         if layer.list_item:
             row_widget = self.layer_list.itemWidget(layer.list_item)
@@ -1868,13 +1276,12 @@ class MainWindow(QMainWindow):
             if row_widget:
                 row_widget.update_appearance()
 
-        self.undo_stack.append({
+        self.push_undo({
             "type": "visibility",
             "index": index,
             "old": old_visible,
             "new": layer.visible,
         })
-        self.redo_stack.clear()
 
         self.update_history_buttons()
         self.update_window_title()
@@ -1945,7 +1352,7 @@ class MainWindow(QMainWindow):
                 rgb, alpha = self.load_image_file(path, background=False)
 
             layer_name = os.path.splitext(os.path.basename(path))[0]
-            layer = Layer(layer_name, rgb, 0, 0, alpha,)
+            layer = Layer(layer_name, rgb, 0, 0, alpha)
 
             index = len(self.layers)
             self.layers.append(layer)
@@ -1954,12 +1361,11 @@ class MainWindow(QMainWindow):
             self.select_layer(index)
             self.update_project_stats()
 
-            self.undo_stack.append({
+            self.push_undo({
                 "type": "add",
                 "index": index,
                 "layer": layer,
             })
-            self.redo_stack.clear()
 
             self.update_window_title()
             self.update_history_buttons()
@@ -2011,13 +1417,12 @@ class MainWindow(QMainWindow):
             self.select_layer(index)
             self.update_project_stats()
 
-            self.undo_stack.append({
+            self.push_undo({
                 "type": "replace",
                 "index": index,
                 "old": old_layer,
                 "new": new_layer,
             })
-            self.redo_stack.clear()
 
             self.update_window_title()
             self.update_history_buttons()
@@ -2038,6 +1443,65 @@ class MainWindow(QMainWindow):
         longest = max(self.canvas_width, self.canvas_height)
         return min(1.0, self.max_preview_size / longest)
 
+
+    def alpha_to_mask_color(self, alpha):
+        """
+        alpha:
+            0   -> blue
+            1   -> green
+            2..254 -> green -> red
+            255 -> white
+
+        Возвращает RGB-кортеж.
+        """
+
+        alpha = int(alpha)
+
+        if alpha <= 0:
+            return (0, 0, 255)
+
+        if alpha >= 255:
+            return (255, 255, 255)
+
+        # 1..254:
+        # green -> red
+        t = (alpha - 1) / 253.0
+
+        r = int(round(255 * t))
+        g = int(round(255 * (1.0 - t)))
+        b = 0
+
+        return (r, g, b)
+
+
+    def create_mask_preview(self, layer):
+        s = self.preview_scale
+
+        w = max(1, round(layer.image.width * s))
+        h = max(1, round(layer.image.height * s))
+
+        alpha = layer.alpha.resize((w, h), Image.Resampling.LANCZOS)
+        alpha_array = np.asarray(alpha, dtype=np.uint8)
+        rgb_array = self.mask_color_lut[alpha_array]
+
+        return Image.fromarray(rgb_array, "RGB").convert("RGBA")
+
+
+    def get_preview_qimage(self, layer, mask=False):
+        if mask:
+            if layer.preview_mask_qimage is None:
+                preview = self.create_mask_preview(layer)
+                layer.preview_mask_qimage = pil_to_qimage(preview)
+
+            return layer.preview_mask_qimage
+
+        else:
+            if layer.preview_normal_qimage is None:
+                preview = self.create_preview(layer)
+                layer.preview_normal_qimage = pil_to_qimage(preview)
+
+            return layer.preview_normal_qimage
+
     def create_preview(self, layer):
         s = self.preview_scale
 
@@ -2048,39 +1512,42 @@ class MainWindow(QMainWindow):
         alpha = layer.alpha.resize((w, h), Image.Resampling.LANCZOS)
 
         rgb.putalpha(alpha)
+
         return rgb
+
 
     def update_layer_preview(self, layer):
         if not layer.item:
             return
 
-        preview = self.create_preview(layer)
-        qimage = pil_to_qimage(preview)
-        layer.preview_qimage = qimage
+        # Всегда обновляем обычный preview-кэш
+        normal_preview = self.create_preview(layer)
+        normal_qimage = pil_to_qimage(normal_preview)
+        layer.preview_normal_qimage = normal_qimage
 
-        if isinstance(layer.item, LayerPreviewItem):
-            layer.item.set_image(qimage)
+        # Маска после изменения alpha становится устаревшей
+        layer.preview_mask_qimage = None
 
+        if self.mask_display_enabled:
+            # В режиме маски сразу строим новую маску
+            mask_preview = self.create_mask_preview(layer)
+            mask_qimage = pil_to_qimage(mask_preview)
+            layer.preview_mask_qimage = mask_qimage
+
+            layer.preview_qimage = mask_qimage
+            layer.item.set_image(mask_qimage)
         else:
-            item = LayerPreviewItem(qimage)
+            layer.preview_qimage = normal_qimage
+            layer.item.set_image(normal_qimage)
 
-            item.setPos(layer.x * self.preview_scale, layer.y * self.preview_scale)
-            item.setVisible(layer.visible)
-            layer.item = item
-
-            self.view.scene().addItem(item)
+        self.view.viewport().update()
 
     # ========================================================
     # Checkerboard background
     # ========================================================
 
     def create_checkerboard(self, width, height, cell_size=16):
-        image = QImage(
-            width,
-            height,
-            QImage.Format.Format_RGB32,
-        )
-
+        image = QImage(width, height, QImage.Format.Format_RGB32)
         image.fill(QColor("#bdbdbd"))
 
         painter = QPainter(image)
@@ -2140,7 +1607,14 @@ class MainWindow(QMainWindow):
 
             item = LayerPreviewItem(layer.preview_qimage)
             item.setPos(layer.x * self.preview_scale, layer.y * self.preview_scale)
-            item.setVisible(layer.visible)
+            if self.solo_mode_enabled:
+                item.setVisible(
+                    layer is self.selected_layer()
+                )
+            else:
+                item.setVisible(
+                    layer.visible
+                )
             layer.item = item
 
             self.view.scene().addItem(item)
@@ -2222,6 +1696,8 @@ class MainWindow(QMainWindow):
 
 
     def layer_selected(self, row):
+        self.update_solo_visibility()
+
         self.view.viewport().update()
         self.update_project_stats()
 
@@ -2239,12 +1715,11 @@ class MainWindow(QMainWindow):
 
         layer = self.layers.pop(index)
 
-        self.undo_stack.append({
+        self.push_undo({
             "type": "delete",
             "index": index,
             "layer": layer,
         })
-        self.redo_stack.clear()
 
         self.rebuild_scene()
         self.update_project_stats()
@@ -2265,12 +1740,11 @@ class MainWindow(QMainWindow):
 
         index = self.layers.index(layer)
 
-        self.undo_stack.append({
+        self.push_undo({
             "type": "brush",
             "index": index,
             "patches": patches,
         })
-        self.redo_stack.clear()
 
         self.update_window_title()
         self.update_history_buttons()
@@ -2295,149 +1769,19 @@ class MainWindow(QMainWindow):
 
 
     # ========================================================
-    # Undo
-    # ========================================================
-
-    def undo(self):
-        if not self.undo_stack:
-            return
-
-        action = self.undo_stack.pop()
-        typ = action["type"]
-
-        if typ == "brush":
-            self.apply_brush_patches(action, True)
-
-        elif typ == "add":
-            index = action["index"]
-
-            if 0 <= index < len(self.layers):
-                self.layers.pop(index)
-
-            self.rebuild_scene()
-
-        elif typ == "delete":
-            index = action["index"]
-            layer = action["layer"]
-
-            self.layers.insert(min(index, len(self.layers)), layer)
-            self.rebuild_scene()
-            self.select_layer(index)
-
-        elif typ == "replace":
-            index = action["index"]
-            self.layers[index] = action["old"]
-
-            self.rebuild_scene()
-            self.select_layer(index)
-
-        elif typ == "rename":
-            index = action["index"]
-
-            if 0 <= index < len(self.layers):
-                self.layers[index].name = action["old_name"]
-
-            self.rebuild_scene()
-            self.select_layer(index)
-
-        elif typ == "visibility":
-            index = action["index"]
-
-            if 0 <= index < len(self.layers):
-                self.layers[index].visible = action["old"]
-
-            self.rebuild_scene()
-            self.select_layer(index)
-
-        elif typ == "reorder":
-            self.restore_layer_order(action["old_ids"])
-
-        self.redo_stack.append(action)
-
-        self.update_window_title()
-        self.update_project_stats()
-        self.update_history_buttons()
-
-
-    # ========================================================
-    # Redo
-    # ========================================================
-
-    def redo(self):
-        if not self.redo_stack:
-            return
-
-        action = self.redo_stack.pop()
-        typ = action["type"]
-
-        if typ == "brush":
-            self.apply_brush_patches(action, False)
-
-        elif typ == "add":
-            index = action["index"]
-            layer = action["layer"]
-
-            self.layers.insert(min(index, len(self.layers)), layer)
-            self.rebuild_scene()
-            self.select_layer(index)
-
-        elif typ == "delete":
-            index = action["index"]
-
-            if 0 <= index < len(self.layers):
-                self.layers.pop(index)
-
-            self.rebuild_scene()
-
-        elif typ == "replace":
-            index = action["index"]
-            self.layers[index] = action["new"]
-
-            self.rebuild_scene()
-            self.select_layer(index)
-
-        elif typ == "rename":
-            index = action["index"]
-
-            if 0 <= index < len(self.layers):
-                self.layers[index].name = action["new_name"]
-
-            self.rebuild_scene()
-            self.select_layer(index)
-
-        elif typ == "visibility":
-            index = action["index"]
-
-            if 0 <= index < len(self.layers):
-                self.layers[index].visible = action["new"]
-
-            self.rebuild_scene()
-            self.select_layer(index)
-
-        elif typ == "reorder":
-            self.restore_layer_order(action["new_ids"])
-
-        self.undo_stack.append(action)
-
-        self.update_window_title()
-        self.update_project_stats()
-        self.update_history_buttons()
-
-
-    # ========================================================
     # History buttons
     # ========================================================
 
     def update_history_buttons(self):
 
-        if self.undo_stack:
+        if self.can_undo:
             self.undo_action.setEnabled(True)
             self.undo_action.setIcon(QIcon("icons/undo.svg"))
         else:
             self.undo_action.setEnabled(False)
             self.undo_action.setIcon(QIcon("icons/undo_inactive.svg"))
 
-        if self.redo_stack:
+        if self.can_redo:
             self.redo_action.setEnabled(True)
             self.redo_action.setIcon(QIcon("icons/redo.svg"))
         else:
@@ -2526,218 +1870,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error saving", str(e))
 
-    # ========================================================
-    # Save project
-    # ========================================================
-
-    def save_project(self):
-        if not self.layers:
-            return False
-
-        if not self.project_path:
-            return self.save_project_as()
-
-        return self.write_project(self.project_path)
-
-    def save_project_as(self):
-        if not self.layers:
-            return False
-
-        path, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "kPanorama Project (*.kpp)")
-
-        if not path:
-            return False
-
-        if not path.lower().endswith(".kpp"):
-            path += ".kpp"
-
-        return self.write_project(path)
-
-
-    def write_project(self, path):
-
-        try:
-            with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as z:
-
-                project = {
-                    "version": 10,
-                    "canvas": [
-                        self.canvas_width,
-                        self.canvas_height,
-                    ],
-                    "layers": [],
-                }
-
-                for i, layer in enumerate(self.layers):
-                    image_name = f"layer_{i}.png"
-
-                    # RGB-изображение всегда сохраняется lossless.
-                    # Если кэш актуален — PNG повторно не кодируется.
-                    z.writestr(image_name, layer.get_image_data())
-
-                    is_background = (i == 0) or (layer is self.layers[0])
-
-                    alpha_name = None
-                    content_alpha_name = None
-                    original_bbox = None
-
-                    # Фоновому слою альфа не нужна вообще.
-                    if not is_background:
-                        alpha_name = f"alpha_{i}.png"
-
-                        z.writestr(alpha_name, layer.get_alpha_data())
-
-                        content_alpha_data = layer.get_content_alpha_data()
-
-                        if content_alpha_data:
-                            content_alpha_name = f"content_alpha_{i}.png"
-
-                            z.writestr(content_alpha_name, content_alpha_data)
-
-                        original_bbox = layer.original_visible_bbox()
-
-                    project["layers"].append({
-                        "name": layer.name,
-                        "image": image_name,
-                        "alpha": alpha_name,
-                        "content_alpha": content_alpha_name,
-                        "original_bbox": (
-                            list(original_bbox)
-                            if original_bbox is not None
-                            else None
-                        ),
-                        "x": layer.x,
-                        "y": layer.y,
-                        "visible": layer.visible,
-                    })
-
-                z.writestr(
-                    "project.json",
-                    json.dumps(project, ensure_ascii=False, indent=2),
-                )
-
-            self.project_path = os.path.abspath(path)
-
-            self.mark_project_saved()
-            self.status.setText("Project saved")
-            self.update_project_stats()
-
-            return True
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error saving", str(e))
-            return False
-
-    # ========================================================
-    # Load project
-    # ========================================================
-
-    def load_project(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "kPanorama Project (*.kpp)")
-
-        if not path:
-            return
-
-        self.load_project_from_path(path)
-
-
-    def load_project_from_path(self, path):
-
-        try:
-            with zipfile.ZipFile(path, "r") as z:
-                project = json.loads(z.read("project.json"))
-
-                if project.get("version") != 10:
-                    raise ValueError("Unsupported project version")
-
-                self.layers.clear()
-
-                self.canvas_width, self.canvas_height = project["canvas"]
-
-                for i, data in enumerate(project["layers"]):
-                    image_name = data["image"]
-                    image_data = z.read(image_name)
-
-                    rgb = Image.open(io.BytesIO(image_data)).convert("RGB")
-
-                    is_background = i == 0
-
-                    if is_background:
-                        alpha = Image.new("L", rgb.size, 255)
-                        content_alpha = Image.new("L", rgb.size, 255)
-
-                        alpha_data = None
-                        content_alpha_data = b""
-
-                    else:
-                        alpha_name = data["alpha"]
-
-                        if not alpha_name:
-                            raise ValueError(f"У слоя {i} отсутствует alpha")
-
-                        alpha_data = z.read(alpha_name)
-                        alpha = Image.open(io.BytesIO(alpha_data)).convert("L")
-
-                        content_alpha_name = data["content_alpha"]
-
-                        if content_alpha_name:
-                            content_alpha_data = z.read(content_alpha_name)
-                            content_alpha = Image.open(io.BytesIO(content_alpha_data)).convert("L")
-                        else:
-                            content_alpha_data = b""
-                            content_alpha = Image.new("L", rgb.size, 255)
-
-                    layer = Layer(
-                        data["name"],
-                        rgb,
-                        data["x"],
-                        data["y"],
-                        alpha,
-                        data["visible"],
-                        original_bbox=data[
-                            "original_bbox"
-                        ],
-                    )
-
-                    # В проекте content_alpha хранится
-                    # отдельно от текущей alpha.
-                    layer.content_alpha = content_alpha
-
-                    # ВАЖНО:
-                    # пересоздаём numpy-кэш именно
-                    # из загруженной content_alpha.
-                    layer.content_alpha_array = np.asarray(content_alpha, dtype=np.float32)
-
-                    # Кэши PNG
-                    layer.image_cache = image_data
-                    layer.image_dirty = False
-
-                    layer.alpha_cache = alpha_data
-                    layer.alpha_dirty = False
-
-                    layer.content_alpha_cache = content_alpha_data
-                    layer.content_alpha_dirty = False
-
-                    self.layers.append(layer)
-
-            self.undo_stack.clear()
-            self.redo_stack.clear()
-
-            self.rebuild_scene()
-
-            self.project_path = os.path.abspath(path)
-
-            self.update_project_stats()
-
-            if self.layers:
-                self.select_layer(len(self.layers) - 1)
-
-            self.mark_project_saved()
-
-            self.status.setText("Project loaded")
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error loading", str(e))
 
     # ========================================================
     # Keyboard shortcuts
@@ -2746,10 +1878,12 @@ class MainWindow(QMainWindow):
     def keyPressEvent(self, e):
         modifiers = e.modifiers()
 
+        # Save
         if modifiers == Qt.KeyboardModifier.ControlModifier and (e.key() == Qt.Key.Key_S):
             self.save_project()
             return
 
+        # Save As
         if (
             modifiers
             == (
@@ -2761,6 +1895,7 @@ class MainWindow(QMainWindow):
             self.save_project_as()
             return
 
+        # Open
         if modifiers == Qt.KeyboardModifier.ControlModifier and (e.key() == Qt.Key.Key_O):
             self.load_project()
             return
@@ -2772,10 +1907,28 @@ class MainWindow(QMainWindow):
             if layer:
                 self.save_layer_to_project_folder(layer)
 
+        # Visualize Mask
+        if (
+            modifiers == Qt.KeyboardModifier.NoModifier
+            and e.nativeScanCode() == 47
+        ):
+            self.toggle_mask_display()
+            return
+
+        # Solo Mode
+        if (
+            modifiers == Qt.KeyboardModifier.NoModifier
+            and e.nativeScanCode() == 31
+        ):
+            self.toggle_solo_mode()
+            return
+
+        # Undo
         if modifiers == Qt.KeyboardModifier.ControlModifier and (e.key() == Qt.Key.Key_Z):
             self.undo()
             return
 
+        # Redo
         if (
             modifiers & Qt.KeyboardModifier.ControlModifier
             and modifiers & Qt.KeyboardModifier.ShiftModifier
