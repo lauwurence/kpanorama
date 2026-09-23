@@ -122,6 +122,15 @@ class LayerRowWidget(QWidget):
         self.name_edit.setVisible(False)
         self.name_edit.returnPressed.connect(self.finish_rename)
 
+        # Tag Button
+        self.tag_button = QPushButton()
+        self.tag_button.setFixedSize(24, 24)
+        self.tag_button.setFlat(True)
+        self.tag_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.tag_button.setToolTip("Layer quality suffix tag for kConverter")
+        self.tag_button.clicked.connect(self.show_tag_menu)
+
+        # Copy Coordinates
         self.copy_button = QPushButton()
         self.copy_button.setFixedSize(24, 24)
         self.copy_button.setIcon(icon("copy_coordinates.svg"))
@@ -131,6 +140,7 @@ class LayerRowWidget(QWidget):
         self.copy_button.clicked.connect(self.copy_coordinates)
         self.copy_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
+        # Save Layer
         self.save_button = QPushButton()
         self.save_button.setFixedSize(24, 24)
         self.save_button.setIcon(icon("save_layer.svg"))
@@ -144,10 +154,79 @@ class LayerRowWidget(QWidget):
         layout.addSpacing(2)
         layout.addWidget(self.name_label, 1)
         layout.addWidget(self.name_edit, 1)
+        layout.addWidget(self.tag_button)
         layout.addWidget(self.copy_button)
         layout.addWidget(self.save_button)
 
         self.update_appearance()
+        self.update_tag_button()
+
+    def show_tag_menu(self):
+        menu = QMenu(self)
+
+        tags = [
+            None,
+            "HQ",
+            "MQ",
+            "LQ",
+            "SQ",
+        ]
+
+        for tag in tags:
+            action = menu.addAction(tag or "Character")
+            action.setCheckable(True)
+            action.setChecked(self.layer.tag == tag)
+            action.triggered.connect(lambda checked=False, t=tag: self.set_tag(t))
+
+        menu.exec(self.tag_button.mapToGlobal(self.tag_button.rect().bottomLeft()))
+
+    def set_tag(self, tag):
+        if tag not in {None, "HQ", "MQ", "LQ", "SQ"}:
+            return
+
+        if self.layer.tag == tag:
+            return
+
+        self.layer.tag = tag
+
+        self.update_tag_button()
+
+        self.window.update_window_title()
+        self.window.update_project_stats()
+
+    def update_tag_button(self):
+        tag = self.layer.tag
+
+        self.tag_button.setText(tag or "#")
+        size = 10
+
+        if tag == "HQ":
+            color = "#63E73B"
+        elif tag == "MQ":
+            color = "#F2E714"
+        elif tag == "LQ":
+            color = "#FF9800"
+        elif tag == "SQ":
+            color = "#F44336"
+        else:
+            color = "#1CD5FF"
+            size = 14
+
+        self.tag_button.setStyleSheet(
+            """
+            QPushButton {
+                background: transparent;
+                border: none;
+                color: %s;
+                font-size: %spx;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: #333333;
+                border-radius: 4px;
+            }
+            """ % (color, size)
+        )
 
     def update_appearance(self):
         if self.layer.visible:
@@ -752,6 +831,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
     def eventFilter(self, obj, event):
 
         if event.type() == QEvent.Type.MouseButtonPress:
+
             for row in range(self.layer_list.count()):
                 item = self.layer_list.item(row)
                 widget = self.layer_list.itemWidget(item)
@@ -1223,6 +1303,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
             self.mask_display_action.setChecked(enabled)
 
         for layer in self.layers:
+
             if not layer.item:
                 continue
 
@@ -1238,6 +1319,8 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
 
                 self.update_layer_preview(layer)
 
+        self.toggle_solo_mode(enabled, update=False)
+
         self.view.viewport().update()
 
         if enabled:
@@ -1250,7 +1333,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
     # Solo layer display mode
     # ========================================================
 
-    def toggle_solo_mode(self, enabled=None):
+    def toggle_solo_mode(self, enabled=None, update=True):
 
         if enabled is None:
             enabled = not self.solo_mode_enabled
@@ -1265,15 +1348,17 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         if hasattr(self, "solo_mode_action"):
             self.solo_mode_action.setChecked(enabled)
 
-        self.update_solo_visibility()
+        self.update_solo_visibility(update)
 
-        if enabled:
-            self.status.setText("Solo mode enabled")
-        else:
-            self.status.setText("Solo mode disabled")
+        if update:
+
+            if enabled:
+                self.status.setText("Solo mode enabled")
+            else:
+                self.status.setText("Solo mode disabled")
 
 
-    def update_solo_visibility(self):
+    def update_solo_visibility(self, update=True):
 
         selected = self.selected_layer()
 
@@ -1283,22 +1368,18 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
                 continue
 
             if self.solo_mode_enabled:
-
                 # В Solo Mode показываем только выбранный слой.
-                layer.item.setVisible(
-                    layer is selected
-                )
+                layer.item.setVisible(layer is selected)
 
             else:
-
                 # Обычный режим — возвращаем реальные
                 # состояния eye каждой строки.
-                layer.item.setVisible(
-                    layer.visible
-                )
+                layer.item.setVisible(layer.visible)
 
         self.layer_list.viewport().update()
-        self.view.viewport().update()
+
+        if update:
+            self.view.viewport().update()
 
 
     # ========================================================
@@ -2562,6 +2643,19 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
     # Export PNG
     # ========================================================
 
+    def get_layer_save_name(self, layer):
+        name = layer.name.strip()
+
+        if not name:
+            name = "Layer"
+
+        name = os.path.splitext(name)[0]
+
+        if layer.tag is not None:
+            name += f"_{layer.tag}"
+
+        return name
+
     def export_layer(self):
         layer = self.selected_layer()
 
@@ -2587,7 +2681,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
 
         result = layer.rgba().crop((left, top, right, bottom))
 
-        path, _ = QFileDialog.getSaveFileName(self, "Save PNG", os.path.splitext(layer.name)[0] + ".png", "PNG (*.png)")
+        path, _ = QFileDialog.getSaveFileName(self, "Save PNG", self.get_layer_save_name(layer) + ".png", "PNG (*.png)")
 
         if not path:
             return
@@ -2615,12 +2709,8 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         layer.clip_alpha_to_original_bbox()
 
         project_dir = os.path.dirname(os.path.abspath(self.project_path))
-        filename = layer.name.strip()
 
-        if not filename:
-            filename = "Layer"
-
-        filename = os.path.splitext(filename)[0]
+        filename = self.get_layer_save_name(layer)
         path = os.path.join(project_dir, filename + ".png")
 
         alpha = np.asarray(layer.alpha)

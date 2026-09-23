@@ -175,6 +175,8 @@ class ProjectIO():
                         "name": layer.name,
                         "image": image_name,
                         "alpha": alpha_name,
+                        "opacity" : layer.opacity,
+                        "tag" : layer.tag,
                         "content_alpha": content_alpha_name,
                         "original_bbox": (
                             list(original_bbox)
@@ -339,6 +341,8 @@ class ProjectIO():
                         original_bbox=data[
                             "original_bbox"
                         ],
+                        opacity=data.get("opacity", 100),
+                        tag=data.get("tag", None)
                     )
 
                     # В проекте content_alpha хранится

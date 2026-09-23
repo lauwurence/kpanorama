@@ -14,13 +14,15 @@ from PyQt6.QtWidgets import QGraphicsItem
 
 class Layer():
 
-    def __init__(self, name, image, x=0, y=0, alpha=None, visible=True, layer_id=None, original_bbox=None, opacity=100):
+    def __init__(self, name, image, x=0, y=0, alpha=None, visible=True, layer_id=None, original_bbox=None, opacity=100, tag=None):
 
         self.id = layer_id or str(uuid.uuid4())
         self.name = name
         self.image = image.convert("RGB")
         self.x = x
         self.y = y
+
+        self.tag = tag if tag in {None, "HQ", "MQ", "LQ", "SQ"} else None
 
         if alpha:
             self.content_alpha = alpha.convert("L").copy()
@@ -85,6 +87,7 @@ class Layer():
             visible=self.visible,
             original_bbox=self._original_visible_bbox,
             opacity=self.opacity,
+            tag=self.tag,
         )
 
     def rgba(self):
