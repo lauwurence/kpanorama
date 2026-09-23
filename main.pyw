@@ -785,11 +785,8 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
             }
 
             QToolButton:checked {
-                background-color: #505050;
-            }
-
-            QToolButton:pressed {
-                background-color: #404040;
+                background-color: #508050;
+                border: 1px solid #484;
             }
         """
 
