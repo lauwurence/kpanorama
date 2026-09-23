@@ -631,6 +631,8 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
             y=0,
         )
 
+        layer.invert_alpha()
+
         # Добавляем над текущим выбранным слоем.
         index = self.selected_index() + 1
 
@@ -649,9 +651,32 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         self.update_history_buttons()
         self.update_window_title()
 
-        self.status.setText(
-            f"Added solid color layer: {color.name().upper()}"
-        )
+        self.status.setText(f"Added solid color layer: {color.name().upper()}")
+
+    def duplicate_layer(self, layer):
+        if not self.layers:
+            return
+
+        if layer is None:
+            layer = self.selected_layer()
+
+        index = self.layers.index(layer)
+        new_index = index + 1
+        new_layer = layer.copy()
+        self.layers.insert(new_index, new_layer)
+        self.rebuild_scene()
+
+        self.select_layer(new_index)
+
+        self.push_undo({
+            "type": "add",
+            "index": new_index,
+            "layer": new_layer,
+        })
+
+        self.update_project_stats()
+        self.update_history_buttons()
+        self.update_window_title()
 
     # ========================================================
     # Project state
@@ -743,6 +768,63 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
 
             return separator
 
+        def create_spacing(width):
+            separator = QWidget()
+            separator.setFixedWidth(width)
+            return separator
+
+        button_style = """
+            QToolButton {
+                border: 1px solid #444;
+                border-radius: 8px;
+                padding: 1px 10px;
+            }
+
+            QToolButton:hover {
+                background-color: #3a3a3a;
+            }
+
+            QToolButton:checked {
+                background-color: #505050;
+            }
+
+            QToolButton:pressed {
+                background-color: #404040;
+            }
+        """
+
+        slider_style = """
+            QSlider {
+                padding-left: 10px;
+                padding-right: 10px;
+            }
+
+            QSlider::groove:horizontal {
+                height: 6px;
+                background: #292929;
+                border-radius: 3px;
+            }
+
+            QSlider::sub-page:horizontal {
+                background: #8a8a8a;
+                border-radius: 3px;
+            }
+
+            QSlider::add-page:horizontal {
+                background: #292929;
+                border-radius: 3px;
+            }
+
+            QSlider::handle:horizontal {
+                width: 6px;
+                height: 6px;
+                margin: 0px;
+                background: #8a8a8a;
+                border: none;
+                border-radius: 3px;
+            }
+        """
+
         self.view = CanvasView(self)
         self.view.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
@@ -793,11 +875,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
 
         settings_menu = QMenu(self)
 
-        settings_menu.addAction(
-            "Register File Associations",
-            self.register_file_associations,
-        )
-
+        settings_menu.addAction("Register File Associations", self.register_file_associations)
         settings_button.setMenu(settings_menu)
 
         toolbar.addWidget(settings_button)
@@ -808,7 +886,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         # Undo / Redo
         # ----------------------------------------------------
 
-        toolbar.setIconSize(QSize(20, 20))
+        toolbar.setIconSize(QSize(22, 22))
 
         self.undo_action = toolbar.addAction(icon("undo.svg"), "")
         self.undo_action.triggered.connect(self.undo)
@@ -817,43 +895,6 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         self.redo_action.triggered.connect(self.redo)
 
         toolbar.addWidget(create_separator())
-
-        # ----------------------------------------------------
-        # Кисть
-        # ----------------------------------------------------
-
-        slider_style = """
-            QSlider {
-                padding-left: 10px;
-                padding-right: 10px;
-            }
-
-            QSlider::groove:horizontal {
-                height: 6px;
-                background: #292929;
-                border-radius: 3px;
-            }
-
-            QSlider::sub-page:horizontal {
-                background: #8a8a8a;
-                border-radius: 3px;
-            }
-
-            QSlider::add-page:horizontal {
-                background: #292929;
-                border-radius: 3px;
-            }
-
-            QSlider::handle:horizontal {
-                width: 6px;
-                height: 6px;
-                margin: 0px;
-                background: #8a8a8a;
-                border: none;
-                border-radius: 3px;
-            }
-        """
-
 
         # ----------------------------------------------------
         # Strength
@@ -872,7 +913,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         toolbar.addWidget(self.brush_strength_slider)
 
         self.brush_strength_label = QLabel(f"{int(self.brush_strength)}%")
-        self.brush_strength_label.setFixedWidth(40)
+        self.brush_strength_label.setFixedWidth(30)
 
         toolbar.addWidget(self.brush_strength_label)
 
@@ -895,7 +936,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         toolbar.addWidget(self.brush_size_slider)
 
         self.brush_size_label = QLabel(f"{self.brush_size}px")
-        self.brush_size_label.setFixedWidth(50)
+        self.brush_size_label.setFixedWidth(40)
 
         toolbar.addWidget(self.brush_size_label)
 
@@ -918,12 +959,9 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         toolbar.addWidget(self.brush_hardness_slider)
 
         self.brush_hardness_label = QLabel(f"{self.brush_hardness:.0f}%")
-        self.brush_hardness_label.setFixedWidth(40)
+        self.brush_hardness_label.setFixedWidth(30)
 
         toolbar.addWidget(self.brush_hardness_label)
-
-        self.status = QLabel("Drag and drop images")
-        self.statusBar().addWidget(self.status)
 
         # ----------------------------------------------------
         # Transparency Mask
@@ -936,16 +974,18 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         self.mask_display_action.setChecked(self.mask_display_enabled)
         self.mask_display_action.setToolTip("Display Transparency Mask (V)")
         self.mask_display_action.triggered.connect(self.toggle_mask_display)
+        toolbar.widgetForAction(self.mask_display_action).setStyleSheet(button_style)
 
-        toolbar.addWidget(create_separator())
+        toolbar.addWidget(create_spacing(5))
 
         self.solo_mode_action = toolbar.addAction("Solo Mode")
         self.solo_mode_action.setCheckable(True)
         self.solo_mode_action.setChecked(self.solo_mode_enabled)
         self.solo_mode_action.setToolTip("Show only the selected layer (S)")
         self.solo_mode_action.triggered.connect(self.toggle_solo_mode)
+        toolbar.widgetForAction(self.solo_mode_action).setStyleSheet(button_style)
 
-        toolbar.addWidget(create_separator())
+        toolbar.addWidget(create_spacing(5))
 
         # ----------------------------------------------------
         # Smart Mask
@@ -954,8 +994,9 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         self.smart_mask_action = toolbar.addAction("Smart Mask")
         self.smart_mask_action.setToolTip("Create transparency from differences with the background")
         self.smart_mask_action.triggered.connect(self.apply_smart_mask)
+        toolbar.widgetForAction(self.smart_mask_action).setStyleSheet(button_style)
 
-        toolbar.addWidget(create_separator())
+        toolbar.addWidget(create_spacing(5))
 
         # ----------------------------------------------------
         # Edge Mask
@@ -964,8 +1005,9 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         self.edge_mask_action = toolbar.addAction("Edge Mask")
         self.edge_mask_action.setToolTip("Apply a smooth 10% edge transparency mask")
         self.edge_mask_action.triggered.connect(self.apply_edge_mask)
+        toolbar.widgetForAction(self.edge_mask_action).setStyleSheet(button_style)
 
-        toolbar.addWidget(create_separator())
+        toolbar.addWidget(create_spacing(5))
 
         # ----------------------------------------------------
         # Add Solid Color
@@ -974,39 +1016,53 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         self.add_color_layer_action = toolbar.addAction("+")
         self.add_color_layer_action.setToolTip("Add a solid color layer")
         self.add_color_layer_action.triggered.connect(self.add_solid_color_layer)
+        toolbar.widgetForAction(self.add_color_layer_action).setStyleSheet(button_style)
 
-        toolbar.addWidget(create_separator())
 
         # ----------------------------------------------------
         # Статистика проекта
         # ----------------------------------------------------
 
-        self.project_stats = QLabel()
+        status_bar = self.statusBar()
 
-        self.zoom_label = QLabel("Zoom: 100%")
+        status_bar.layout().setSpacing(0)
+        status_bar.setContentsMargins(4, 2, 4, 2)
+        status_bar.setStyleSheet("""
+            QStatusBar::item {
+                border: none;
+            }
+        """)
+
+
+        self.status = QLabel("Drag and drop images")
+        status_bar.addWidget(self.status)
+
+
+        self.zoom_label = QLabel("Zoom: 100%   | ")
         self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.zoom_label.setStyleSheet(
             """
             QLabel {
                 color: #999;
-                padding: 0 8px;
+                padding: 0 0px;
             }
             """
         )
+        status_bar.addPermanentWidget(self.zoom_label)
 
-        self.statusBar().addPermanentWidget(self.zoom_label)
 
+        self.project_stats = QLabel()
         self.project_stats.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.project_stats.setStyleSheet(
             """
             QLabel {
                 color: #999;
-                padding: 0 8px;
+                padding: 0 0px;
             }
             """
         )
+        status_bar.addPermanentWidget(self.project_stats)
 
-        self.statusBar().addPermanentWidget(self.project_stats)
 
         self.update_project_stats()
         self.update_window_title()
@@ -1224,7 +1280,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
 
     def update_zoom_status(self):
         zoom = self.view.transform().m11() * 100
-        self.zoom_label.setText(f"Zoom: {zoom:.0f}%")
+        self.zoom_label.setText(f"Zoom: {zoom:.0f}%   | ")
 
     # ========================================================
     # Brush
@@ -1429,6 +1485,9 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         move_down_action.setEnabled(index > 1)
 
         menu.addSeparator()
+
+        duplicate_layer_action = menu.addAction(f"Duplicate Layer")
+        duplicate_layer_action.triggered.connect(lambda checked=False, l=layer: self.duplicate_layer(l))
 
         delete_action = menu.addAction("Delete Layer")
         delete_action.triggered.connect(lambda checked=False, i=index: self.delete_layer(i))

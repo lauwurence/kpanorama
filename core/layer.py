@@ -5,7 +5,7 @@ import io
 import uuid
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import QPainter
@@ -75,6 +75,17 @@ class Layer():
 
         self.recalculate_content_bbox()
 
+    def copy(self):
+        return Layer(
+            name=f"{self.name} copy",
+            image=self.image.copy(),
+            x=self.x,
+            y=self.y,
+            alpha=self.alpha.copy(),
+            visible=self.visible,
+            original_bbox=self._original_visible_bbox,
+            opacity=self.opacity,
+        )
 
     def rgba(self):
         img = self.image.copy()
@@ -88,6 +99,10 @@ class Layer():
 
         img.putalpha(alpha)
         return img
+
+    def invert_alpha(self):
+        self.alpha = ImageOps.invert(self.alpha)
+        self.alpha_dirty = True
 
 
     def original_visible_bbox(self):
@@ -143,25 +158,6 @@ class Layer():
 
         return self.image_cache
 
-    def clip_alpha_to_original_bbox(self):
-        bbox = self.original_visible_bbox()
-        if bbox is None:
-            self.alpha = Image.new("L", self.image.size, 0)
-            self.alpha_dirty = True
-            return
-
-        ox0, oy0, ox1, oy1 = bbox
-
-        alpha = np.asarray(self.alpha, dtype=np.uint8).copy()
-
-        alpha[:oy0, :] = 0
-        alpha[oy1:, :] = 0
-        alpha[:, :ox0] = 0
-        alpha[:, ox1:] = 0
-
-        self.alpha = Image.fromarray(alpha, "L")
-        self.alpha_dirty = True
-        self.recalculate_content_bbox()
 
     def clip_alpha_to_original_bbox(self):
         bbox = self.original_visible_bbox()
