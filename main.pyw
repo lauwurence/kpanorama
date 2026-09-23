@@ -5,7 +5,7 @@ import os
 import sys
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 from PyQt6.QtCore import Qt, QSize, QTimer, QSettings, QRectF
 from PyQt6.QtGui import (
@@ -29,15 +29,17 @@ from PyQt6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QSlider,
     QSplitter,
     QToolBar,
     QWidget,
     QLineEdit,
     QToolButton,
+    QColorDialog,
 )
 
-from layer import Layer, LayerPreviewItem
+from core.layer import Layer, LayerPreviewItem
 from core.history import History
 from project.project_io import ProjectIO
 from ui.canvas import CanvasView
@@ -134,7 +136,7 @@ class LayerRowWidget(QWidget):
         self.save_button.setIcon(icon("save_layer.svg"))
         self.save_button.setIconSize(QSize(20, 20))
         self.save_button.setFlat(True)
-        self.save_button.setToolTip("Save layer (Shift + E)")
+        self.save_button.setToolTip("Save layer (Shift+E)")
         self.save_button.clicked.connect(self.save_layer)
         self.save_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
@@ -318,7 +320,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
 
     def create_mask_color_lut(self):
         lut = np.zeros((256, 3), dtype=np.uint8)
-        lut[0] = (0, 0, 155)
+        lut[0] = (0, 0, 0)
 
         values = np.arange(1, 255, dtype=np.float32)
 
@@ -327,7 +329,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         lut[1:255, 0] = np.round(255.0 * t).astype(np.uint8)
         lut[1:255, 1] = np.round(255.0 * (1.0 - t)).astype(np.uint8)
 
-        lut[255] = (255, 255, 255)
+        lut[255] = (225, 225, 225)
 
         return lut
 
@@ -496,8 +498,19 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
             rgb = Image.fromarray(rgb_array, "RGB").convert("RGBA")
 
         else:
-            rgb = layer.image.crop((src_x0, src_y0, src_x1, src_y1))
-            alpha = layer.alpha.crop((src_x0, src_y0, src_x1, src_y1))
+            rgb = layer.image.crop(
+                (src_x0, src_y0, src_x1, src_y1)
+            )
+
+            alpha = layer.alpha.crop(
+                (src_x0, src_y0, src_x1, src_y1)
+            )
+
+            if layer.opacity != 100:
+                alpha = alpha.point(
+                    lambda a: int(a * layer.opacity / 100)
+                )
+
             rgb.putalpha(alpha)
 
         # ----------------------------------------
@@ -588,6 +601,57 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
 
         except Exception as e:
             QMessageBox.critical(self, "Error pasting from clipboard", str(e))
+
+    def add_solid_color_layer(self):
+        color = QColorDialog.getColor(
+            QColor(255, 255, 255),
+            self,
+            "Choose Layer Color",
+        )
+
+        if not color.isValid():
+            return
+
+        rgb = (
+            color.red(),
+            color.green(),
+            color.blue(),
+        )
+
+        image = Image.new(
+            "RGB",
+            (self.canvas_width, self.canvas_height),
+            rgb,
+        )
+
+        layer = Layer(
+            name=f"Solid {color.name().upper()}",
+            image=image,
+            x=0,
+            y=0,
+        )
+
+        # Добавляем над текущим выбранным слоем.
+        index = self.selected_index() + 1
+
+        self.layers.insert(index, layer)
+
+        self.push_undo({
+            "type": "add",
+            "index": index,
+            "layer": layer,
+        })
+
+        self.rebuild_scene()
+        self.select_layer(index)
+
+        self.update_project_stats()
+        self.update_history_buttons()
+        self.update_window_title()
+
+        self.status.setText(
+            f"Added solid color layer: {color.name().upper()}"
+        )
 
     # ========================================================
     # Project state
@@ -747,11 +811,9 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         toolbar.setIconSize(QSize(20, 20))
 
         self.undo_action = toolbar.addAction(icon("undo.svg"), "")
-        self.undo_action.setToolTip("Undo (Ctrl+Z)")
         self.undo_action.triggered.connect(self.undo)
 
         self.redo_action = toolbar.addAction(icon("redo.svg"), "")
-        self.redo_action.setToolTip("Redo (Ctrl+Shift+Z)")
         self.redo_action.triggered.connect(self.redo)
 
         toolbar.addWidget(create_separator())
@@ -890,12 +952,8 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         # ----------------------------------------------------
 
         self.smart_mask_action = toolbar.addAction("Smart Mask")
-        self.smart_mask_action.setToolTip(
-            "Create transparency from differences with the background"
-        )
-        self.smart_mask_action.triggered.connect(
-            self.apply_smart_mask
-        )
+        self.smart_mask_action.setToolTip("Create transparency from differences with the background")
+        self.smart_mask_action.triggered.connect(self.apply_smart_mask)
 
         toolbar.addWidget(create_separator())
 
@@ -906,6 +964,16 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         self.edge_mask_action = toolbar.addAction("Edge Mask")
         self.edge_mask_action.setToolTip("Apply a smooth 10% edge transparency mask")
         self.edge_mask_action.triggered.connect(self.apply_edge_mask)
+
+        toolbar.addWidget(create_separator())
+
+        # ----------------------------------------------------
+        # Add Solid Color
+        # ----------------------------------------------------
+
+        self.add_color_layer_action = toolbar.addAction("+")
+        self.add_color_layer_action.setToolTip("Add a solid color layer")
+        self.add_color_layer_action.triggered.connect(self.add_solid_color_layer)
 
         toolbar.addWidget(create_separator())
 
@@ -1009,11 +1077,49 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
             widget.start_rename()
 
     def register_file_associations(self):
-        from association import register_kpp_file_association
+        from core.association import register_kpp_file_association
 
         register_kpp_file_association()
 
         QMessageBox.information(self, "File Associations", ".kpp file association registered.")
+
+
+    def set_layer_opacity_dialog(self, layer):
+        if layer not in self.layers:
+            return
+
+        value, ok = QInputDialog.getInt(
+            self,
+            "Set Opacity",
+            "Opacity:",
+            layer.opacity,
+            0,
+            100,
+            10,
+        )
+
+        if not ok or value == layer.opacity:
+            return
+
+        index = self.layers.index(layer)
+        old_opacity = layer.opacity
+
+        layer.opacity = value
+
+        self.push_undo({
+            "type": "opacity",
+            "index": index,
+            "old": old_opacity,
+            "new": value,
+        })
+
+        self.update_layer_preview(layer)
+
+        self.update_project_stats()
+        self.update_history_buttons()
+        self.update_window_title()
+        self.view.viewport().update()
+
 
     # ========================================================
     # Alpha mask display mode
@@ -1283,45 +1389,52 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         menu = QMenu(self)
 
         save_action = menu.addAction("Save as PNG")
+        save_action.triggered.connect(self.export_layer)
 
         menu.addSeparator()
 
         replace_action = menu.addAction("Replace From Path")
+        replace_action.triggered.connect(lambda checked=False, i=index: self.replace_layer(i))
+
         replace_clipboard_action = menu.addAction("Replace From Clipboard")
+        replace_clipboard_action.triggered.connect(lambda checked=False, i=index: self.replace_layer_from_clipboard(i))
 
         menu.addSeparator()
 
         fill_white_action = menu.addAction("Make Opaque")
         fill_white_action.triggered.connect(lambda checked=False, l=layer: self.fill_layer_alpha(l, True))
+        fill_white_action.setEnabled(index > 0)
 
         fill_black_action = menu.addAction("Make Transparent")
         fill_black_action.triggered.connect(lambda checked=False, l=layer: self.fill_layer_alpha(l, False))
+        fill_black_action.setEnabled(index > 0)
 
         menu.addSeparator()
 
-        self.move_up_action = menu.addAction("Move Up")
-        self.move_up_action.triggered.connect(self.move_layer_up)
-        self.move_up_action.setEnabled(index > 0 and len(self.layers) > 2 and index != len(self.layers) - 1)
+        set_layer_opacity_action = menu.addAction(f"Set Opacity ({layer.opacity:.0f}%)")
+        set_layer_opacity_action.triggered.connect(lambda checked=False, l=layer: self.set_layer_opacity_dialog(l))
 
-        self.move_down_action = menu.addAction("Move Down")
-        self.move_down_action.triggered.connect(self.move_layer_down)
-        self.move_down_action.setEnabled(index > 1)
+        merge_with_background_action = menu.addAction("Merge With Background")
+        merge_with_background_action.triggered.connect(self.merge_layer_with_background)
+        merge_with_background_action.setEnabled(index > 0)
+
+        menu.addSeparator()
+
+        move_up_action = menu.addAction("Move Up")
+        move_up_action.triggered.connect(self.move_layer_up)
+        move_up_action.setEnabled(index > 0 and len(self.layers) > 2 and index != len(self.layers) - 1)
+
+        move_down_action = menu.addAction("Move Down")
+        move_down_action.triggered.connect(self.move_layer_down)
+        move_down_action.setEnabled(index > 1)
 
         menu.addSeparator()
 
         delete_action = menu.addAction("Delete Layer")
+        delete_action.triggered.connect(lambda checked=False, i=index: self.delete_layer(i))
         delete_action.setEnabled(index != 0)
 
-        action = menu.exec(self.layer_list.mapToGlobal(pos))
-
-        if action == save_action:
-            self.export_layer()
-        elif action == replace_action:
-            self.replace_layer(index)
-        elif action == replace_clipboard_action:
-            self.replace_layer_from_clipboard(index)
-        elif action == delete_action:
-            self.delete_layer()
+        menu.exec(self.layer_list.mapToGlobal(pos))
 
 
     # ========================================================
@@ -1543,9 +1656,12 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
             self.update_history_buttons()
 
             self.status.setText(
-                f"Добавлено: {os.path.basename(path)} "
+                f"Image loaded: {os.path.basename(path)} "
                 f"({rgb.width} × {rgb.height})"
             )
+
+            if index == 0:
+                QTimer.singleShot(0, self.fit_canvas_to_view)
 
         except Exception as e:
             QMessageBox.critical(self, "Error adding image", str(e))
@@ -1633,10 +1749,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
             ptr = qimage.bits()
             ptr.setsize(width * height * 4)
 
-            arr = np.frombuffer(
-                ptr,
-                dtype=np.uint8,
-            ).reshape((height, width, 4))
+            arr = np.frombuffer(ptr, dtype=np.uint8).reshape((height, width, 4))
 
             pil_image = Image.fromarray(arr, "RGBA")
             new_image = pil_image.convert("RGB")
@@ -1756,16 +1869,40 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         w = max(1, round(layer.image.width * s))
         h = max(1, round(layer.image.height * s))
 
-        rgb = layer.image.resize((w, h), Image.Resampling.LANCZOS)
-        alpha = layer.alpha.resize((w, h), Image.Resampling.LANCZOS)
+        rgb = layer.image.resize(
+            (w, h),
+            Image.Resampling.LANCZOS,
+        )
+
+        alpha = layer.alpha.resize(
+            (w, h),
+            Image.Resampling.LANCZOS,
+        )
+
+        # Глобальная прозрачность слоя.
+        if layer.opacity != 100:
+            alpha = alpha.point(
+                lambda a: int(a * layer.opacity / 100)
+            )
 
         rgb.putalpha(alpha)
 
         return rgb
 
-
     def update_layer_preview(self, layer):
         if not layer.item:
+            return
+
+        try:
+            item = layer.item
+
+            if item is None:
+                return
+
+            item.scene()
+
+        # Старый LayerPreviewItem уже уничтожен.
+        except RuntimeError:
             return
 
         # Всегда обновляем обычный preview-кэш
@@ -1954,8 +2091,10 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
     # Delete layer
     # ========================================================
 
-    def delete_layer(self):
-        index = self.selected_index()
+    def delete_layer(self, index=None):
+
+        if index is None:
+            index = self.selected_index()
 
         if index <= 0:
             QMessageBox.information(self, "Удаление", "Фоновый слой удалить нельзя.")
@@ -1977,6 +2116,261 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
 
         self.update_window_title()
         self.update_history_buttons()
+
+
+    # ========================================================
+    # Merge selected layer with background
+    # ========================================================
+
+    def merge_layer_with_background(self):
+        index = self.selected_index()
+
+        # Фоновый слой объединять не с чем
+        if index <= 0:
+            QMessageBox.information(
+                self,
+                "Merge Layer",
+                "Select a layer above the background.",
+            )
+            return
+
+        if index >= len(self.layers):
+            return
+
+        background = self.layers[0]
+        layer = self.layers[index]
+
+        # ----------------------------------------------------
+        # Сохраняем состояние для Undo
+        # ----------------------------------------------------
+
+        old_background_image = background.image.copy()
+        old_background_alpha = background.alpha.copy()
+
+        # ----------------------------------------------------
+        # RGBA
+        # ----------------------------------------------------
+
+        background_rgba = background.rgba().copy()
+        layer_rgba = layer.rgba()
+
+        # ----------------------------------------------------
+        # Позиция слоя относительно background
+        # ----------------------------------------------------
+
+        x = int(round(layer.x - background.x))
+        y = int(round(layer.y - background.y))
+
+        # ----------------------------------------------------
+        # Область пересечения
+        # ----------------------------------------------------
+
+        bx0 = max(0, x)
+        by0 = max(0, y)
+
+        bx1 = min(
+            background_rgba.width,
+            x + layer_rgba.width,
+        )
+
+        by1 = min(
+            background_rgba.height,
+            y + layer_rgba.height,
+        )
+
+        if bx1 <= bx0 or by1 <= by0:
+            QMessageBox.information(
+                self,
+                "Merge Layer",
+                "The selected layer does not intersect the background.",
+            )
+            return
+
+        # Координаты внутри layer
+        lx0 = bx0 - x
+        ly0 = by0 - y
+
+        lx1 = lx0 + (bx1 - bx0)
+        ly1 = ly0 + (by1 - by0)
+
+        # ----------------------------------------------------
+        # Crop
+        # ----------------------------------------------------
+
+        bg_crop = background_rgba.crop(
+            (bx0, by0, bx1, by1)
+        )
+
+        layer_crop = layer_rgba.crop(
+            (lx0, ly0, lx1, ly1)
+        )
+
+        # ----------------------------------------------------
+        # Композитинг с учётом alpha mask слоя
+        # ----------------------------------------------------
+
+        merged_crop = Image.alpha_composite(
+            bg_crop,
+            layer_crop,
+        )
+
+        # ----------------------------------------------------
+        # Записываем результат в background
+        # ----------------------------------------------------
+
+        background_rgba.paste(
+            merged_crop,
+            (bx0, by0),
+        )
+
+        background.image = background_rgba.convert("RGB")
+        background.alpha = background_rgba.getchannel("A")
+
+        background.image_cache = None
+        background.alpha_cache = None
+
+        background.image_dirty = True
+        background.alpha_dirty = True
+
+        background.recalculate_content_bbox()
+
+        # ----------------------------------------------------
+        # Удаляем объединённый слой
+        # ----------------------------------------------------
+
+        self.layers.pop(index)
+
+        # ----------------------------------------------------
+        # Undo
+        # ----------------------------------------------------
+
+        self.push_undo({
+            "type": "merge_with_background",
+
+            "index": index,
+            "layer": layer,
+
+            "background_image": old_background_image,
+            "background_alpha": old_background_alpha,
+        })
+
+        # ----------------------------------------------------
+        # Перестраиваем сцену
+        # ----------------------------------------------------
+
+        self.rebuild_scene()
+
+        self.select_layer(0)
+
+        self.update_project_stats()
+        self.update_history_buttons()
+        self.update_window_title()
+
+        self.status.setText(
+            f"Merged '{layer.name}' with background"
+        )
+
+
+    def apply_merge_with_background(self, action, undo):
+        index = action["index"]
+        layer = action["layer"]
+
+        background = self.layers[0]
+
+        if undo:
+            # ------------------------------------------------
+            # Возвращаем background в исходное состояние
+            # ------------------------------------------------
+
+            background.image = action["background_image"].copy()
+            background.alpha = action["background_alpha"].copy()
+
+            background.image_cache = None
+            background.alpha_cache = None
+
+            background.image_dirty = True
+            background.alpha_dirty = True
+
+            background.recalculate_content_bbox()
+
+            # ------------------------------------------------
+            # Возвращаем слой на прежнее место
+            # ------------------------------------------------
+
+            if layer not in self.layers:
+                self.layers.insert(index, layer)
+
+        else:
+            # ------------------------------------------------
+            # Повторяем Merge
+            # ------------------------------------------------
+
+            # В случае Redo нужно снова наложить layer
+            # на background.
+            background_rgba = background.rgba().copy()
+            layer_rgba = layer.rgba()
+
+            x = int(round(layer.x - background.x))
+            y = int(round(layer.y - background.y))
+
+            bx0 = max(0, x)
+            by0 = max(0, y)
+
+            bx1 = min(
+                background_rgba.width,
+                x + layer_rgba.width,
+            )
+
+            by1 = min(
+                background_rgba.height,
+                y + layer_rgba.height,
+            )
+
+            if bx1 > bx0 and by1 > by0:
+
+                lx0 = bx0 - x
+                ly0 = by0 - y
+
+                lx1 = lx0 + (bx1 - bx0)
+                ly1 = ly0 + (by1 - by0)
+
+                bg_crop = background_rgba.crop(
+                    (bx0, by0, bx1, by1)
+                )
+
+                layer_crop = layer_rgba.crop(
+                    (lx0, ly0, lx1, ly1)
+                )
+
+                merged_crop = Image.alpha_composite(
+                    bg_crop,
+                    layer_crop,
+                )
+
+                background_rgba.paste(
+                    merged_crop,
+                    (bx0, by0),
+                )
+
+                background.image = background_rgba.convert("RGB")
+                background.alpha = background_rgba.getchannel("A")
+
+                background.image_cache = None
+                background.alpha_cache = None
+
+                background.image_dirty = True
+                background.alpha_dirty = True
+
+                background.recalculate_content_bbox()
+
+            if layer in self.layers:
+                self.layers.remove(layer)
+
+        self.rebuild_scene()
+        self.select_layer(0)
+
+        self.update_project_stats()
+
 
     # ========================================================
     # Brush Undo / Redo
@@ -2046,16 +2440,37 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         if self.can_undo:
             self.undo_action.setEnabled(True)
             self.undo_action.setIcon(icon("undo.svg"))
+            typ = self.undo_stack[-1].get('type')
+
+            if typ:
+                tt = f'Undo: {typ}'
+            else:
+                tt = "Undo"
+
+            self.undo_action.setToolTip(tt)
+
         else:
             self.undo_action.setEnabled(False)
             self.undo_action.setIcon(icon("undo_inactive.svg"))
+            self.undo_action.setToolTip("")
 
         if self.can_redo:
             self.redo_action.setEnabled(True)
             self.redo_action.setIcon(icon("redo.svg"))
+            typ = self.redo_stack[-1].get('type')
+
+            if typ:
+                tt = f'Redo: {typ}'
+            else:
+                tt = "Redo"
+
+            self.redo_action.setToolTip(tt)
+
         else:
             self.redo_action.setEnabled(False)
             self.redo_action.setIcon(icon("redo_inactive.svg"))
+            self.redo_action.setToolTip("")
+
 
     # ========================================================
     # Export PNG
@@ -2074,8 +2489,10 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         ys, xs = np.where(alpha > 0)
 
         if len(xs) == 0:
-            QMessageBox.information(self, "Экспорт", "Слой полностью прозрачный.")
+            QMessageBox.information(self, "Save Layer", "Layer is completely transparent.")
             return
+
+        layer.clip_alpha_to_original_bbox()
 
         left = int(xs.min())
         right = int(xs.max()) + 1
@@ -2089,7 +2506,12 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         if not path:
             return
 
-        result.save(path, "PNG")
+        result.save(
+            path,
+            format="PNG",
+            compress_level=1,
+            optimize=False
+        )
 
         x = int(layer.x + left)
         y = int(layer.y + top)
@@ -2099,9 +2521,12 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         self.status.setText(f"Layer saved: {os.path.basename(path)} ({x}, {y})")
 
     def save_layer_to_project_folder(self, layer):
+
         if not self.project_path:
-            QMessageBox.information(self, "Сохранение слоя", "Сначала сохраните проект.")
+            QMessageBox.information(self, "Save Layer", "Save the project first.")
             return
+
+        layer.clip_alpha_to_original_bbox()
 
         project_dir = os.path.dirname(os.path.abspath(self.project_path))
         filename = layer.name.strip()
@@ -2116,7 +2541,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         ys, xs = np.where(alpha > 0)
 
         if len(xs) == 0:
-            QMessageBox.information(self, "Сохранение слоя", "Слой полностью прозрачный.")
+            QMessageBox.information(self, "Save Layer", "Layer is completely transparent.")
             return
 
         left = int(xs.min())
@@ -2127,7 +2552,12 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         result = layer.rgba().crop((left, top, right, bottom))
 
         try:
-            result.save(path, "PNG")
+            result.save(
+                path,
+                format="PNG",
+                compress_level=1,
+                optimize=False
+            )
 
             x = int(layer.x + left)
             y = int(layer.y + top)

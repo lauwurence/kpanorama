@@ -116,14 +116,19 @@ class SmartMaskAction():
     def apply_smart_mask(self):
 
         layer = self.selected_layer()
+
         if not layer:
             self.status.setText("No layer selected")
             return
+
         if layer is self.layers[0]:
             self.status.setText("Background layer cannot be smart masked")
             return
 
+        layer.clip_alpha_to_original_bbox()
+
         bbox = layer.original_visible_bbox()
+
         if bbox is None:
             self.status.setText("Layer has no visible content")
             return
@@ -131,6 +136,7 @@ class SmartMaskAction():
         x0, y0, x1, y1 = bbox
         width = x1 - x0
         height = y1 - y0
+
         if width <= 0 or height <= 0:
             return
 
@@ -232,7 +238,7 @@ class SmartMaskAction():
             # области, а плавный переход начинается уже за ним.
             # ---------------------------------------------------------
 
-            expansion = max(1.0, float(softness)) * 0.5
+            expansion = max(1.0, float(softness)) * 0.25
 
             # Евклидово расстояние от каждого внешнего пикселя
             # до исходной маски.

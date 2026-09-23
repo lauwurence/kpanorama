@@ -1,6 +1,8 @@
 ################################################################################
 ## History
 
+MAX_UNDO = 100
+
 class History():
 
     def __init__(self):
@@ -9,6 +11,10 @@ class History():
 
     def push_undo(self, action):
         self.undo_stack.append(action)
+
+        if len(self.undo_stack) > MAX_UNDO:
+            self.undo_stack.pop(0)
+
         self.redo_stack.clear()
 
     @property
@@ -75,28 +81,26 @@ class History():
             self.rebuild_scene()
             self.select_layer(index)
 
-        # elif typ == "visibility":
-        #     index = action["index"]
-
-        #     if 0 <= index < len(self.layers):
-        #         self.layers[index].visible = action["old"]
-
-        #     self.rebuild_scene()
-        #     self.select_layer(index)
+        elif typ == "merge_with_background":
+            self.apply_merge_with_background(action, True)
 
         elif typ == "reorder":
             self.restore_layer_order(action["old_ids"])
+
+        elif typ == "opacity":
+            index = action["index"]
+
+            if 0 <= index < len(self.layers):
+                layer = self.layers[index]
+                layer.opacity = action["old"]
+
+                self.update_layer_preview(layer)
 
         self.redo_stack.append(action)
 
         self.update_window_title()
         self.update_project_stats()
         self.update_history_buttons()
-
-        layer = action.get("layer")
-
-        if layer:
-            self.update_layer_preview(layer)
 
 
     ############################################################################
@@ -153,28 +157,26 @@ class History():
             self.rebuild_scene()
             self.select_layer(index)
 
-        # elif typ == "visibility":
-        #     index = action["index"]
-
-        #     if 0 <= index < len(self.layers):
-        #         self.layers[index].visible = action["new"]
-
-        #     self.rebuild_scene()
-        #     self.select_layer(index)
+        elif typ == "merge_with_background":
+            self.apply_merge_with_background(action, False)
 
         elif typ == "reorder":
             self.restore_layer_order(action["new_ids"])
+
+        elif typ == "opacity":
+            index = action["index"]
+
+            if 0 <= index < len(self.layers):
+                layer = self.layers[index]
+                layer.opacity = action["new"]
+
+                self.update_layer_preview(layer)
 
         self.undo_stack.append(action)
 
         self.update_window_title()
         self.update_project_stats()
         self.update_history_buttons()
-
-        layer = action.get("layer")
-
-        if layer:
-            self.update_layer_preview(layer)
 
 
     ############################################################################

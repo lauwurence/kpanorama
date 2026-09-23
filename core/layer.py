@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import QGraphicsItem
 
 class Layer():
 
-    def __init__(self, name, image, x=0, y=0, alpha=None, visible=True, layer_id=None, original_bbox=None):
+    def __init__(self, name, image, x=0, y=0, alpha=None, visible=True, layer_id=None, original_bbox=None, opacity=100):
 
         self.id = layer_id or str(uuid.uuid4())
         self.name = name
@@ -33,6 +33,7 @@ class Layer():
         self.content_alpha_array = np.asarray(self.content_alpha, dtype=np.float32)
 
         self.visible = visible
+        self.opacity = max(0, min(100, int(opacity)))
 
         self.item = None
         self.list_item = None
@@ -77,28 +78,16 @@ class Layer():
 
     def rgba(self):
         img = self.image.copy()
-        img.putalpha(self.alpha)
-        return img
 
+        alpha = self.alpha.copy()
 
-    def get_content_alpha_array(self):
-
-        if not hasattr(self, "content_alpha_array"):
-            self.content_alpha_array = np.asarray(
-                self.content_alpha,
-                dtype=np.uint8,
+        if self.opacity != 100:
+            alpha = alpha.point(
+                lambda a: int(a * self.opacity / 100)
             )
 
-        return self.content_alpha_array
-
-
-    def image_bounds(self):
-        return (
-            self.x,
-            self.y,
-            self.image.width,
-            self.image.height,
-        )
+        img.putalpha(alpha)
+        return img
 
 
     def original_visible_bbox(self):
@@ -118,77 +107,81 @@ class Layer():
         return (self.x + x0, self.y + y0, x1 - x0, y1 - y0)
 
 
-    def update_content_bbox(self, rect):
-        x0, y0, x1, y1 = rect
-
-        if self.content_bbox is None:
-            self.content_bbox = (x0, y0, x1, y1)
-            return
-
-        bx0, by0, bx1, by1 = self.content_bbox
-
-        self.content_bbox = (min(bx0, x0), min(by0, y0), max(bx1, x1), max(by1, y1))
-
-
     def recalculate_content_bbox(self):
+        alpha = np.asarray(self.alpha)
 
-        alpha = np.asarray(self.alpha, dtype=np.uint8)
-        ys, xs = np.nonzero(alpha)
+        rows = np.any(alpha > 0, axis=1)
+        cols = np.any(alpha > 0, axis=0)
 
-        if len(xs) == 0:
+        if not rows.any():
             self.content_bbox = None
             return
 
+        y0 = np.argmax(rows)
+        y1 = len(rows) - np.argmax(rows[::-1])
+
+        x0 = np.argmax(cols)
+        x1 = len(cols) - np.argmax(cols[::-1])
+
         self.content_bbox = (
-            int(xs.min()),
-            int(ys.min()),
-            int(xs.max()) + 1,
-            int(ys.max()) + 1,
+            int(x0),
+            int(y0),
+            int(x1),
+            int(y1),
         )
 
 
     def get_image_data(self):
+
         if self.image_cache is None or self.image_dirty:
             buf = io.BytesIO()
 
-            self.image.save(buf, "PNG", compress_level=1)
+            self.image.save(buf, "PNG", compress_level=1, optimize=False)
 
             self.image_cache = buf.getvalue()
             self.image_dirty = False
 
         return self.image_cache
 
+    def clip_alpha_to_original_bbox(self):
+        bbox = self.original_visible_bbox()
+        if bbox is None:
+            self.alpha = Image.new("L", self.image.size, 0)
+            self.alpha_dirty = True
+            return
 
-    def get_alpha_data(self):
-        if self.alpha_cache is None or self.alpha_dirty:
-            buf = io.BytesIO()
+        ox0, oy0, ox1, oy1 = bbox
 
-            self.alpha.save(buf, "PNG", compress_level=1)
+        alpha = np.asarray(self.alpha, dtype=np.uint8).copy()
 
-            self.alpha_cache = buf.getvalue()
-            self.alpha_dirty = False
+        alpha[:oy0, :] = 0
+        alpha[oy1:, :] = 0
+        alpha[:, :ox0] = 0
+        alpha[:, ox1:] = 0
 
-        return self.alpha_cache
+        self.alpha = Image.fromarray(alpha, "L")
+        self.alpha_dirty = True
+        self.recalculate_content_bbox()
 
+    def clip_alpha_to_original_bbox(self):
+        bbox = self.original_visible_bbox()
+        if bbox is None:
+            self.alpha = Image.new("L", self.image.size, 0)
+            self.alpha_dirty = True
+            return
 
-    def get_content_alpha_data(self):
+        ox0, oy0, ox1, oy1 = bbox
 
-        if self.content_alpha_cache is None or self.content_alpha_dirty:
-            content_alpha_array = np.asarray(self.content_alpha)
+        alpha = np.asarray(self.alpha, dtype=np.uint8).copy()
 
-            # Полностью непрозрачную маску
-            # вообще не нужно сохранять.
-            if np.all(content_alpha_array == 255):
-                self.content_alpha_cache = b""
-            else:
-                buf = io.BytesIO()
+        alpha[:oy0, :] = 0
+        alpha[oy1:, :] = 0
+        alpha[:, :ox0] = 0
+        alpha[:, ox1:] = 0
 
-                self.content_alpha.save(buf, "PNG", compress_level=1)
-                self.content_alpha_cache = buf.getvalue()
-
-            self.content_alpha_dirty = False
-
-        return self.content_alpha_cache
+        self.alpha = Image.fromarray(alpha, "L")
+        self.alpha_dirty = True
+        self.recalculate_content_bbox()
 
 
 class LayerPreviewItem(QGraphicsItem):

@@ -244,6 +244,8 @@ class EdgeMaskAction():
             )
             return
 
+        layer.clip_alpha_to_original_bbox()
+
         # ----------------------------------------------------
         # Получаем реальные границы контента.
         #

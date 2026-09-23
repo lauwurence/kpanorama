@@ -66,6 +66,7 @@ class CanvasView(QGraphicsView):
         # не конфликтовала с логикой Shift.
         self.last_stroke_x = None
         self.last_stroke_y = None
+        self._blur_kernel_cache = {}
 
     # -------------------------------------------------------------------------
     # Drag & Drop
@@ -233,6 +234,7 @@ class CanvasView(QGraphicsView):
 
         # F + движение = размер / жёсткость кисти
         if self.resizing_brush:
+
             # Shift + F = сила кисти
             if self.adjusting_brush_strength:
                 delta_x = e.position().x() - self.brush_strength_start_x
@@ -355,6 +357,7 @@ class CanvasView(QGraphicsView):
         super().mousePressEvent(e)
 
     def mouseReleaseEvent(self, e):
+
         # СКМ = Grab
         if e.button() == Qt.MouseButton.MiddleButton:
             if self.painting:
@@ -371,6 +374,7 @@ class CanvasView(QGraphicsView):
 
         # ЛКМ = завершение мазка
         if e.button() == Qt.MouseButton.LeftButton:
+
             if self.painting:
                 self.painting = False
 
@@ -574,10 +578,19 @@ class CanvasView(QGraphicsView):
             crop_x1 = crop_x0 + (x1 - x0)
             crop_y1 = crop_y0 + (y1 - y0)
 
-            smoothed_alpha = smoothed_extended[crop_y0:crop_y1, crop_x0:crop_x1]
-            current_alpha = current_extended[crop_y0:crop_y1, crop_x0:crop_x1]
+            smoothed_alpha = smoothed_extended[
+                crop_y0:crop_y1,
+                crop_x0:crop_x1,
+            ]
 
-            result = current_alpha + (smoothed_alpha - current_alpha) * stroke_strength
+            current_alpha = current_extended[
+                crop_y0:crop_y1,
+                crop_x0:crop_x1,
+            ]
+
+            result = smoothed_alpha - current_alpha
+            result *= stroke_strength
+            result += current_alpha
 
         # ==============================================================
         # CTRL = уменьшение alpha
@@ -702,16 +715,12 @@ class CanvasView(QGraphicsView):
 
         return self.brush_mask
 
-    def smooth_alpha_numpy(self, arr, radius):
-        if radius <= 0:
-            return arr.astype(np.float32, copy=False)
+    def get_blur_kernel(self, radius):
+        kernel = self._blur_kernel_cache.get(radius)
 
-        arr = arr.astype(np.float32, copy=False)
+        if kernel is not None:
+            return kernel
 
-        # Gaussian blur.
-        #
-        # В отличие от box blur, Gaussian blur не создаёт
-        # квадратную область воздействия.
         sigma = max(0.5, radius / 2.0)
         kernel_radius = max(1, int(np.ceil(sigma * 3.0)))
 
@@ -721,10 +730,26 @@ class CanvasView(QGraphicsView):
             dtype=np.float32,
         )
 
-        kernel = np.exp(-(x * x) / (2.0 * sigma * sigma))
+        kernel = np.exp(
+            -(x * x) / (2.0 * sigma * sigma)
+        )
+
         kernel /= kernel.sum()
 
-        # Horizontal pass.
+        self._blur_kernel_cache[radius] = kernel
+
+        return kernel
+
+    def smooth_alpha_numpy(self, arr, radius):
+        if radius <= 0:
+            return arr.astype(np.float32, copy=False)
+
+        arr = arr.astype(np.float32, copy=False)
+
+        kernel = self.get_blur_kernel(radius)
+        kernel_radius = len(kernel) // 2
+
+        # Horizontal pass
         padded = np.pad(
             arr,
             ((0, 0), (kernel_radius, kernel_radius)),
@@ -740,7 +765,7 @@ class CanvasView(QGraphicsView):
                 mode="valid",
             )
 
-        # Vertical pass.
+        # Vertical pass
         padded = np.pad(
             horizontal,
             ((kernel_radius, kernel_radius), (0, 0)),
@@ -756,7 +781,7 @@ class CanvasView(QGraphicsView):
                 mode="valid",
             )
 
-        return result.astype(np.float32, copy=False)
+        return result
 
     # -------------------------------------------------------------------------
     # Paint Cursor

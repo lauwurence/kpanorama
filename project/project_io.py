@@ -11,7 +11,7 @@ from PIL import Image
 
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
-from layer import Layer
+from core.layer import Layer
 
 
 class ProjectIO():
@@ -42,7 +42,7 @@ class ProjectIO():
 
         alpha = self._normalize_alpha_for_save(layer.alpha)
         buffer = io.BytesIO()
-        alpha.save(buffer, format="PNG")
+        alpha.save(buffer, format="PNG", compress_level=1, optimize=False)
 
         return buffer.getvalue()
 
@@ -53,7 +53,7 @@ class ProjectIO():
 
         content_alpha = self._normalize_alpha_for_save(layer.content_alpha)
         buffer = io.BytesIO()
-        content_alpha.save(buffer, format="PNG")
+        content_alpha.save(buffer, format="PNG", compress_level=1, optimize=False)
 
         return buffer.getvalue()
 
