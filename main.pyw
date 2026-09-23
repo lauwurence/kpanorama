@@ -7,7 +7,7 @@ import sys
 import numpy as np
 from PIL import Image
 
-from PyQt6.QtCore import Qt, QSize, QTimer, QSettings
+from PyQt6.QtCore import Qt, QSize, QTimer, QSettings, QRectF
 from PyQt6.QtGui import (
     QColor,
     QImage,
@@ -41,8 +41,10 @@ from layer import Layer, LayerPreviewItem
 from core.history import History
 from project.project_io import ProjectIO
 from ui.canvas import CanvasView
+from core.smart_mask import SmartMaskAction
+from core.edge_mask import EdgeMaskAction
 
-APP_VERSION = (0, 1, 2)
+APP_VERSION = (0, 1, 3)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ICON_DIR = os.path.join(BASE_DIR, "icons")
@@ -269,12 +271,16 @@ class LayerListWidget(QListWidget):
 # Main Window
 # ============================================================
 
-class MainWindow(QMainWindow, History, ProjectIO):
+class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskAction):
 
     def __init__(self):
         super().__init__()
 
-        self.settings = QSettings("keyclap", "kPanorama")
+        self.settings = QSettings("kPanorama", "kPanorama")
+
+        self.settings.remove("edge_mask")
+        self.settings.remove("smart_mask")
+        self.settings.sync()
 
         self.project_path = None
         self.saved_history = ()
@@ -370,6 +376,79 @@ class MainWindow(QMainWindow, History, ProjectIO):
         self.update_project_stats()
         self.view.viewport().update()
 
+    # ========================================================
+    # Fit layer to viewport
+    # ========================================================
+
+    def fit_selected_layer(self):
+        layer = self.selected_layer()
+
+        if not layer or not layer.item:
+            return
+
+        bounds = layer.visible_bounds()
+
+        if not bounds:
+            return
+
+        x, y, w, h = bounds
+
+        # visible_bounds() — координаты в canvas.
+        # Переводим их в координаты preview/scene.
+        rect = QRectF(
+            x * self.preview_scale,
+            y * self.preview_scale,
+            w * self.preview_scale,
+            h * self.preview_scale,
+        )
+
+        if rect.isEmpty():
+            return
+
+        # Небольшой отступ от краёв viewport.
+        margin = 20
+        rect.adjust(
+            -margin,
+            -margin,
+            margin,
+            margin,
+        )
+
+        self.view.fitInView(
+            rect,
+            Qt.AspectRatioMode.KeepAspectRatio,
+        )
+
+        self.view.centerOn(rect.center())
+
+        self.update_zoom_status()
+        self.view.viewport().update()
+
+    def fit_canvas_to_view(self):
+        if not self.canvas_width or not self.canvas_height:
+            return
+
+        rect = self.view.scene().sceneRect()
+
+        # У тебя sceneRect имеет большие отрицательные margins,
+        # поэтому используем реальные размеры canvas.
+        rect = QRectF(
+            0,
+            0,
+            self.canvas_width * self.preview_scale,
+            self.canvas_height * self.preview_scale,
+        )
+
+        margin = 20
+        rect.adjust(-margin, -margin, margin, margin)
+
+        self.view.fitInView(
+            rect,
+            Qt.AspectRatioMode.KeepAspectRatio,
+        )
+
+        self.view.centerOn(rect.center())
+        self.update_zoom_status()
 
     def update_layer_preview_region(self, layer, rect):
         if not layer.item:
@@ -600,7 +679,11 @@ class MainWindow(QMainWindow, History, ProjectIO):
             return separator
 
         self.view = CanvasView(self)
+        self.view.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
         self.layer_list = LayerListWidget(self)
+        self.layer_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
         self.layer_list.itemDoubleClicked.connect(self.start_layer_rename)
         self.layer_list.currentRowChanged.connect(self.layer_selected)
         self.layer_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -799,6 +882,32 @@ class MainWindow(QMainWindow, History, ProjectIO):
         self.solo_mode_action.setToolTip("Show only the selected layer (S)")
         self.solo_mode_action.triggered.connect(self.toggle_solo_mode)
 
+        toolbar.addWidget(create_separator())
+
+        # ----------------------------------------------------
+        # Smart Mask
+        # ----------------------------------------------------
+
+        self.smart_mask_action = toolbar.addAction("Smart Mask")
+        self.smart_mask_action.setToolTip(
+            "Create transparency from differences with the background"
+        )
+        self.smart_mask_action.triggered.connect(
+            self.apply_smart_mask
+        )
+
+        toolbar.addWidget(create_separator())
+
+        # ----------------------------------------------------
+        # Edge Mask
+        # ----------------------------------------------------
+
+        self.edge_mask_action = toolbar.addAction("Edge Mask")
+        self.edge_mask_action.setToolTip("Apply a smooth 10% edge transparency mask")
+        self.edge_mask_action.triggered.connect(self.apply_edge_mask)
+
+        toolbar.addWidget(create_separator())
+
         # ----------------------------------------------------
         # Статистика проекта
         # ----------------------------------------------------
@@ -829,8 +938,8 @@ class MainWindow(QMainWindow, History, ProjectIO):
         )
 
         self.statusBar().addPermanentWidget(self.project_stats)
-        self.update_project_stats()
 
+        self.update_project_stats()
         self.update_window_title()
         self.update_history_buttons()
 
@@ -1185,6 +1294,16 @@ class MainWindow(QMainWindow, History, ProjectIO):
 
         menu.addSeparator()
 
+        self.move_up_action = menu.addAction("Move Up")
+        self.move_up_action.triggered.connect(self.move_layer_up)
+        self.move_up_action.setEnabled(index > 0 and len(self.layers) > 2 and index != len(self.layers) - 1)
+
+        self.move_down_action = menu.addAction("Move Down")
+        self.move_down_action.triggered.connect(self.move_layer_down)
+        self.move_down_action.setEnabled(index > 1)
+
+        menu.addSeparator()
+
         delete_action = menu.addAction("Delete Layer")
         delete_action.setEnabled(index != 0)
 
@@ -1196,6 +1315,50 @@ class MainWindow(QMainWindow, History, ProjectIO):
             self.replace_layer(index)
         elif action == delete_action:
             self.delete_layer()
+
+
+    # ========================================================
+    # Order
+    # ========================================================
+
+    def move_layer_down(self):
+        index = self.selected_index()
+
+        if index is None:
+            return
+
+        if index <= 1:
+            return
+
+        self.layers[index - 1], self.layers[index] = (
+            self.layers[index],
+            self.layers[index - 1],
+        )
+
+        self.select_layer(index - 1)
+        self.rebuild_scene()
+
+
+    def move_layer_up(self):
+        index = self.selected_index()
+
+        if index is None:
+            return
+
+        if index >= len(self.layers) - 1:
+            return
+
+        if index == 0:
+            return
+
+        self.layers[index + 1], self.layers[index] = (
+            self.layers[index],
+            self.layers[index + 1],
+        )
+
+        self.select_layer(index + 1)
+        self.rebuild_scene()
+
 
     # ========================================================
     # Rename
@@ -1240,7 +1403,7 @@ class MainWindow(QMainWindow, History, ProjectIO):
                 row_widget.name_label.setText(new_name)
 
         self.push_undo({
-            "type": "rename",
+            "type": "rename_layer",
             "index": index,
             "old_name": old_name,
             "new_name": new_name,
@@ -1278,15 +1441,15 @@ class MainWindow(QMainWindow, History, ProjectIO):
             if row_widget:
                 row_widget.update_appearance()
 
-        self.push_undo({
-            "type": "visibility",
-            "index": index,
-            "old": old_visible,
-            "new": layer.visible,
-        })
+        # self.push_undo({
+        #     "type": "visibility",
+        #     "index": index,
+        #     "old": old_visible,
+        #     "new": layer.visible,
+        # })
 
-        self.update_history_buttons()
-        self.update_window_title()
+        # self.update_history_buttons()
+        # self.update_window_title()
         self.update_project_stats()
         self.layer_list.viewport().update()
 
@@ -1385,10 +1548,10 @@ class MainWindow(QMainWindow, History, ProjectIO):
     # ========================================================
 
     def replace_layer(self, index):
-        if not 0 <= index < len(self.layers):
+        if not (0 <= index < len(self.layers)):
             return
 
-        old_layer = self.layers[index]
+        layer = self.layers[index]
 
         path, _ = QFileDialog.getOpenFileName(
             self,
@@ -1401,38 +1564,37 @@ class MainWindow(QMainWindow, History, ProjectIO):
             return
 
         try:
-            rgb, alpha = self.load_image_file(path, background=index == 0)
-            layer_name = os.path.splitext(os.path.basename(path))[0]
 
-            new_layer = Layer(
-                layer_name,
-                rgb,
-                old_layer.x,
-                old_layer.y,
-                alpha,
-                old_layer.visible,
-            )
+            old_image = layer.image
+            new_image = Image.open(path).convert("RGB")
 
-            self.layers[index] = new_layer
+            layer.image = new_image
 
+            # Сбрасываем только кеш изображения.
+            layer.image_cache = None
+            layer.image_dirty = True
+
+            # Перестраиваем отображение.
             self.rebuild_scene()
-            self.select_layer(index)
+
+            self.update_layer_preview(layer)
             self.update_project_stats()
-
-            self.push_undo({
-                "type": "replace",
-                "index": index,
-                "old": old_layer,
-                "new": new_layer,
-            })
-
             self.update_window_title()
             self.update_history_buttons()
 
-            self.status.setText(f"Image replaced: {new_layer.name}")
+            self.push_undo({
+                "type": "replace_image",
+                "index": index,
+                "old_image": old_image,
+                "new_image": new_image,
+            })
 
         except Exception as e:
-            QMessageBox.critical(self, "Error replacing image", str(e))
+            QMessageBox.critical(
+                self,
+                "Replace Image",
+                f"Не удалось заменить изображение:\n{e}"
+            )
 
     # ========================================================
     # Preview scale
@@ -1791,7 +1953,6 @@ class MainWindow(QMainWindow, History, ProjectIO):
 
         self.update_layer_preview(layer)
 
-
     # ========================================================
     # History buttons
     # ========================================================
@@ -1902,34 +2063,53 @@ class MainWindow(QMainWindow, History, ProjectIO):
     def keyPressEvent(self, e):
         modifiers = e.modifiers()
 
-        # Save
-        if modifiers == Qt.KeyboardModifier.ControlModifier and (e.key() == Qt.Key.Key_S):
+        # Ctrl + S — Save
+        if (
+            modifiers == Qt.KeyboardModifier.ControlModifier
+            and e.nativeScanCode() == 31
+        ):
             self.save_project()
             return
 
-        # Save As
+        # Ctrl + Shift + S — Save As
         if (
             modifiers
             == (
                 Qt.KeyboardModifier.ControlModifier
                 | Qt.KeyboardModifier.ShiftModifier
             )
-            and e.key() == Qt.Key.Key_S
+            and e.nativeScanCode() == 31
         ):
             self.save_project_as()
             return
 
-        # Open
-        if modifiers == Qt.KeyboardModifier.ControlModifier and (e.key() == Qt.Key.Key_O):
+        # Ctrl + O — Open
+        if (
+            modifiers == Qt.KeyboardModifier.ControlModifier
+            and e.nativeScanCode() == 24
+        ):
             self.load_project()
             return
 
         # Ctrl + E — сохранить текущий слой
-        if modifiers == Qt.KeyboardModifier.ControlModifier and (e.key() == Qt.Key.Key_E):
+        if (
+            modifiers == Qt.KeyboardModifier.ControlModifier
+            and e.nativeScanCode() == 18
+        ):
             layer = self.selected_layer()
 
             if layer:
                 self.save_layer_to_project_folder(layer)
+
+            return
+
+        # Fit Selected
+        if (
+            modifiers == Qt.KeyboardModifier.NoModifier
+            and e.nativeScanCode() == 41
+        ):
+            self.fit_selected_layer()
+            return
 
         # Visualize Mask
         if (
@@ -1947,16 +2127,21 @@ class MainWindow(QMainWindow, History, ProjectIO):
             self.toggle_solo_mode()
             return
 
-        # Undo
-        if modifiers == Qt.KeyboardModifier.ControlModifier and (e.key() == Qt.Key.Key_Z):
+        # Ctrl + Z — Undo
+        if (
+            modifiers == Qt.KeyboardModifier.ControlModifier
+            and e.nativeScanCode() == 44
+        ):
             self.undo()
             return
 
-        # Redo
+        # Ctrl + Shift + Z — Redo
         if (
-            modifiers & Qt.KeyboardModifier.ControlModifier
-            and modifiers & Qt.KeyboardModifier.ShiftModifier
-            and e.key() == Qt.Key.Key_Z
+            modifiers
+            & Qt.KeyboardModifier.ControlModifier
+            and modifiers
+            & Qt.KeyboardModifier.ShiftModifier
+            and e.nativeScanCode() == 44
         ):
             self.redo()
             return

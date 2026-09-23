@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView
 
 
 class CanvasView(QGraphicsView):
+
     def __init__(self, window):
         super().__init__()
         self.window = window

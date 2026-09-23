@@ -9,6 +9,7 @@ import zipfile
 import numpy as np
 from PIL import Image
 
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 from layer import Layer
 
@@ -392,6 +393,8 @@ class ProjectIO():
             self.status.setText(
                 "Project loaded"
             )
+
+            QTimer.singleShot(0, self.fit_canvas_to_view)
 
         except Exception as e:
             QMessageBox.critical(

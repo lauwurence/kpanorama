@@ -53,14 +53,20 @@ class History():
             self.rebuild_scene()
             self.select_layer(index)
 
-        elif typ == "replace":
+        elif typ == "smart_mask":
+            self.apply_smart_mask_history(action, True)
+
+        elif typ == "edge_mask":
+            self.apply_edge_mask_history(action, True)
+
+        elif typ == "replace_image":
             index = action["index"]
-            self.layers[index] = action["old"]
+            self.layers[index].image = action["old_image"]
 
             self.rebuild_scene()
             self.select_layer(index)
 
-        elif typ == "rename":
+        elif typ == "rename_layer":
             index = action["index"]
 
             if 0 <= index < len(self.layers):
@@ -69,14 +75,14 @@ class History():
             self.rebuild_scene()
             self.select_layer(index)
 
-        elif typ == "visibility":
-            index = action["index"]
+        # elif typ == "visibility":
+        #     index = action["index"]
 
-            if 0 <= index < len(self.layers):
-                self.layers[index].visible = action["old"]
+        #     if 0 <= index < len(self.layers):
+        #         self.layers[index].visible = action["old"]
 
-            self.rebuild_scene()
-            self.select_layer(index)
+        #     self.rebuild_scene()
+        #     self.select_layer(index)
 
         elif typ == "reorder":
             self.restore_layer_order(action["old_ids"])
@@ -125,14 +131,20 @@ class History():
 
             self.rebuild_scene()
 
-        elif typ == "replace":
+        elif typ == "smart_mask":
+            self.apply_smart_mask_history(action, False)
+
+        elif typ == "edge_mask":
+            self.apply_edge_mask_history(action, False)
+
+        elif typ == "replace_image":
             index = action["index"]
-            self.layers[index] = action["new"]
+            self.layers[index].image = action["new_image"]
 
             self.rebuild_scene()
             self.select_layer(index)
 
-        elif typ == "rename":
+        elif typ == "rename_layer":
             index = action["index"]
 
             if 0 <= index < len(self.layers):
@@ -141,14 +153,14 @@ class History():
             self.rebuild_scene()
             self.select_layer(index)
 
-        elif typ == "visibility":
-            index = action["index"]
+        # elif typ == "visibility":
+        #     index = action["index"]
 
-            if 0 <= index < len(self.layers):
-                self.layers[index].visible = action["new"]
+        #     if 0 <= index < len(self.layers):
+        #         self.layers[index].visible = action["new"]
 
-            self.rebuild_scene()
-            self.select_layer(index)
+        #     self.rebuild_scene()
+        #     self.select_layer(index)
 
         elif typ == "reorder":
             self.restore_layer_order(action["new_ids"])
@@ -163,3 +175,61 @@ class History():
 
         if layer:
             self.update_layer_preview(layer)
+
+
+    ############################################################################
+
+    def apply_smart_mask_history(
+        self,
+        action,
+        undo,
+    ):
+        index = action["index"]
+
+        if not (
+            0 <= index < len(self.layers)
+        ):
+            return
+
+        layer = self.layers[index]
+
+        layer.alpha = (
+            action["before"].copy()
+            if undo
+            else action["after"].copy()
+        )
+
+        layer.alpha_dirty = True
+
+        layer.recalculate_content_bbox()
+
+        self.update_layer_preview(
+            layer
+        )
+
+        self.update_project_stats()
+        self.update_window_title()
+
+        self.view.viewport().update()
+
+    def apply_edge_mask_history(self, action, undo):
+        index = action["index"]
+
+        if not 0 <= index < len(self.layers):
+            return
+
+        layer = self.layers[index]
+
+        layer.alpha = (
+            action["before"].copy()
+            if undo
+            else action["after"].copy()
+        )
+
+        layer.alpha_dirty = True
+        layer.recalculate_content_bbox()
+
+        self.update_layer_preview(layer)
+        self.update_project_stats()
+        self.update_window_title()
+        self.view.viewport().update()
