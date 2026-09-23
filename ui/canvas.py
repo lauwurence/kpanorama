@@ -450,7 +450,8 @@ class CanvasView(QGraphicsView):
         # 0.20 диаметра кисти означает, что отпечатки
         # сильно перекрываются и между ними не образуются
         # пустые промежутки.
-        step = max(1.0, self.window.brush_size * 0.20)
+        # step = max(1.0, self.window.brush_size * 0.20)
+        step = max(1.0, self.window.brush_size * 0.05)
         steps = max(1, int(np.ceil(distance / step)))
 
         for i in range(1, steps + 1):
