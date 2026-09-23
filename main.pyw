@@ -7,7 +7,7 @@ import sys
 import numpy as np
 from PIL import Image, ImageFilter
 
-from PyQt6.QtCore import Qt, QSize, QTimer, QSettings, QRectF
+from PyQt6.QtCore import Qt, QSize, QTimer, QSettings, QRectF, QEvent
 from PyQt6.QtGui import (
     QColor,
     QImage,
@@ -749,6 +749,34 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
     # UI
     # ========================================================
 
+    def eventFilter(self, obj, event):
+
+        if event.type() == QEvent.Type.MouseButtonPress:
+            for row in range(self.layer_list.count()):
+                item = self.layer_list.item(row)
+                widget = self.layer_list.itemWidget(item)
+
+                if not isinstance(widget, LayerRowWidget):
+                    continue
+
+                if not widget.name_edit.isVisible():
+                    continue
+
+                # Клик внутри поля переименования — ничего не делаем
+                if obj is widget.name_edit:
+                    return super().eventFilter(obj, event)
+
+                # Клик по дочернему объекту QLineEdit
+                if isinstance(obj, QWidget) and widget.name_edit.isAncestorOf(obj):
+                    return super().eventFilter(obj, event)
+
+                # Клик в любое другое место — применяем переименование
+                widget.finish_rename()
+
+                break
+
+        return super().eventFilter(obj, event)
+
     def setup_ui(self):
 
         def create_separator():
@@ -1064,6 +1092,8 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         self.update_project_stats()
         self.update_window_title()
         self.update_history_buttons()
+
+        QApplication.instance().installEventFilter(self)
 
     def update_project_stats(self):
         # Размер проекта
