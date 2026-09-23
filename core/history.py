@@ -96,6 +96,20 @@ class History():
 
                 self.update_layer_preview(layer)
 
+        elif typ == "dark_cut":
+            layer = self.layers[action["index"]]
+            layer.alpha = action["before"].copy()
+            layer.alpha_dirty = True
+            layer.recalculate_content_bbox()
+            self.update_layer_preview(layer)
+
+        elif typ == "mask_adjust":
+            layer = self.layers[action["index"]]
+            layer.alpha = action["before"].copy()
+            layer.alpha_dirty = True
+            layer.recalculate_content_bbox()
+            self.update_layer_preview(layer)
+
         self.redo_stack.append(action)
 
         self.update_window_title()
@@ -172,6 +186,20 @@ class History():
 
                 self.update_layer_preview(layer)
 
+        elif typ == "dark_cut":
+            layer = self.layers[action["index"]]
+            layer.alpha = action["after"].copy()
+            layer.alpha_dirty = True
+            layer.recalculate_content_bbox()
+            self.update_layer_preview(layer)
+
+        elif typ == "mask_adjust":
+            layer = self.layers[action["index"]]
+            layer.alpha = action["after"].copy()
+            layer.alpha_dirty = True
+            layer.recalculate_content_bbox()
+            self.update_layer_preview(layer)
+
         self.undo_stack.append(action)
 
         self.update_window_title()
@@ -202,12 +230,8 @@ class History():
         )
 
         layer.alpha_dirty = True
-
         layer.recalculate_content_bbox()
-
-        self.update_layer_preview(
-            layer
-        )
+        self.update_layer_preview(layer)
 
         self.update_project_stats()
         self.update_window_title()

@@ -5,7 +5,7 @@ import os
 import sys
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image
 
 from PyQt6.QtCore import Qt, QSize, QTimer, QSettings, QRectF, QEvent
 from PyQt6.QtGui import (
@@ -45,6 +45,8 @@ from project.project_io import ProjectIO
 from ui.canvas import CanvasView
 from core.smart_mask import SmartMaskAction
 from core.edge_mask import EdgeMaskAction
+from core.dark_cut import DarkCutAction
+from core.mask_adjust import MaskAdjustAction
 
 APP_VERSION = (0, 1, 3)
 
@@ -352,7 +354,7 @@ class LayerListWidget(QListWidget):
 # Main Window
 # ============================================================
 
-class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskAction):
+class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskAction, DarkCutAction, MaskAdjustAction):
 
     def __init__(self):
         super().__init__()
@@ -361,6 +363,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
 
         self.settings.remove("edge_mask")
         self.settings.remove("smart_mask")
+        self.settings.remove("dark_cut")
         self.settings.sync()
 
         self.project_path = None
@@ -1115,6 +1118,28 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         toolbar.addWidget(create_spacing(5))
 
         # ----------------------------------------------------
+        # Dark Cut
+        # ----------------------------------------------------
+
+        self.dark_cut_button = toolbar.addAction("Dark Cut")
+        self.dark_cut_button.setToolTip("Reduce layer opacity pixel-by-pixel according to background darkness")
+        self.dark_cut_button.triggered.connect(self.apply_dark_cut)
+        toolbar.widgetForAction(self.dark_cut_button).setStyleSheet(button_style)
+
+        toolbar.addWidget(create_spacing(5))
+
+        # ----------------------------------------------------
+        # Mask Adjust
+        # ----------------------------------------------------
+
+        self.mask_adjust_button = toolbar.addAction("Mask Adjust")
+        self.mask_adjust_button.setToolTip("Adjust the layer mask: levels, contrast, offset, blur, sharpen and more")
+        self.mask_adjust_button.triggered.connect(self.adjust_mask)
+        toolbar.widgetForAction(self.mask_adjust_button).setStyleSheet(button_style)
+
+        toolbar.addWidget(create_spacing(5))
+
+        # ----------------------------------------------------
         # Add Solid Color
         # ----------------------------------------------------
 
@@ -1282,6 +1307,69 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         self.update_history_buttons()
         self.update_window_title()
         self.view.viewport().update()
+
+
+    def dark_cut_layer(self):
+        layer = self.selected_layer()
+
+        if layer is None:
+            return
+
+        index = self.layers.index(layer)
+
+        # Собираем изображение фона под выбранным слоем.
+        background = self.render_background_for_layer(index)
+
+        if background is None:
+            return
+
+        layer_image = np.asarray(layer.image.convert("RGB"), dtype=np.float32)
+        bg_image = np.asarray(background.convert("RGB"), dtype=np.float32)
+
+        # Яркость фона.
+        luminance = (
+            0.2126 * bg_image[:, :, 0]
+            + 0.7152 * bg_image[:, :, 1]
+            + 0.0722 * bg_image[:, :, 2]
+        )
+
+        # 0 = белый/светлый фон
+        # 1 = чёрный/тёмный фон
+        darkness = 1.0 - luminance / 255.0
+
+        # Сила эффекта.
+        # 1.0 означает, что на абсолютно чёрном фоне
+        # альфа может полностью исчезнуть.
+        reduction = darkness
+
+        alpha = np.asarray(layer.alpha, dtype=np.float32)
+
+        new_alpha = alpha * (1.0 - reduction)
+
+        new_alpha = np.clip(
+            new_alpha,
+            0,
+            255,
+        ).astype(np.uint8)
+
+        old_alpha = layer.alpha.copy()
+
+        layer.alpha = Image.fromarray(new_alpha, "L")
+        layer.alpha_dirty = True
+        layer.recalculate_content_bbox()
+
+        self.update_layer_preview(layer)
+
+        self.push_undo({
+            "type": "alpha",
+            "index": index,
+            "old_alpha": old_alpha,
+            "new_alpha": layer.alpha.copy(),
+        })
+
+        self.update_project_stats()
+        self.update_history_buttons()
+        self.update_window_title()
 
 
     # ========================================================
