@@ -298,7 +298,8 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         self.canvas_width = 0
         self.canvas_height = 0
 
-        self.max_preview_size = 3000
+        # self.max_preview_size = 3000
+        self.max_preview_size = None
         self.preview_scale = 1.0
 
         # Режим визуализации alpha-маски
@@ -317,7 +318,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
 
     def create_mask_color_lut(self):
         lut = np.zeros((256, 3), dtype=np.uint8)
-        lut[0] = (0, 0, 255)
+        lut[0] = (0, 0, 155)
 
         values = np.arange(1, 255, dtype=np.float32)
 
@@ -1282,14 +1283,18 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         menu = QMenu(self)
 
         save_action = menu.addAction("Save as PNG")
-        replace_action = menu.addAction("Replace Image")
 
         menu.addSeparator()
 
-        fill_white_action = menu.addAction("Fill White")
+        replace_action = menu.addAction("Replace From Path")
+        replace_clipboard_action = menu.addAction("Replace From Clipboard")
+
+        menu.addSeparator()
+
+        fill_white_action = menu.addAction("Make Opaque")
         fill_white_action.triggered.connect(lambda checked=False, l=layer: self.fill_layer_alpha(l, True))
 
-        fill_black_action = menu.addAction("Fill Black")
+        fill_black_action = menu.addAction("Make Transparent")
         fill_black_action.triggered.connect(lambda checked=False, l=layer: self.fill_layer_alpha(l, False))
 
         menu.addSeparator()
@@ -1313,6 +1318,8 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
             self.export_layer()
         elif action == replace_action:
             self.replace_layer(index)
+        elif action == replace_clipboard_action:
+            self.replace_layer_from_clipboard(index)
         elif action == delete_action:
             self.delete_layer()
 
@@ -1582,6 +1589,8 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
             self.update_window_title()
             self.update_history_buttons()
 
+            self.select_layer(index)
+
             self.push_undo({
                 "type": "replace_image",
                 "index": index,
@@ -1593,7 +1602,79 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
             QMessageBox.critical(
                 self,
                 "Replace Image",
-                f"Не удалось заменить изображение:\n{e}"
+                f"Unable to replace image:\n{e}"
+            )
+
+    def replace_layer_from_clipboard(self, index):
+        if not (0 <= index < len(self.layers)):
+            return
+
+        layer = self.layers[index]
+        clipboard = QApplication.clipboard()
+
+        if not clipboard.mimeData().hasImage():
+            QMessageBox.information(
+                self,
+                "Replace Image Clipboard",
+                "Clipboard does not contain an image.",
+            )
+            return
+
+        qimage = clipboard.image()
+
+        if qimage.isNull():
+            return
+
+        try:
+            qimage = qimage.convertToFormat(QImage.Format.Format_RGBA8888)
+            width = qimage.width()
+            height = qimage.height()
+
+            ptr = qimage.bits()
+            ptr.setsize(width * height * 4)
+
+            arr = np.frombuffer(
+                ptr,
+                dtype=np.uint8,
+            ).reshape((height, width, 4))
+
+            pil_image = Image.fromarray(arr, "RGBA")
+            new_image = pil_image.convert("RGB")
+
+            old_image = layer.image
+
+            layer.image = new_image
+
+            layer.image_cache = None
+            layer.image_dirty = True
+
+            self.rebuild_scene()
+
+            self.update_layer_preview(layer)
+            self.update_project_stats()
+
+            self.push_undo({
+                "type": "replace_image",
+                "index": index,
+                "old_image": old_image,
+                "new_image": new_image,
+            })
+
+            self.update_window_title()
+            self.update_history_buttons()
+
+            self.select_layer(index)
+
+            self.status.setText(
+                f"Image replaced from clipboard: "
+                f"{width} × {height}"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Replace Image Clipboard",
+                f"Unable to replace image:\n{e}"
             )
 
     # ========================================================
@@ -1602,6 +1683,9 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
 
     def calculate_preview_scale(self):
         if not self.canvas_width or not self.canvas_height:
+            return 1.0
+
+        if self.max_preview_size is None:
             return 1.0
 
         longest = max(self.canvas_width, self.canvas_height)

@@ -46,7 +46,7 @@ class SmartMaskDialog(QDialog):
         self.threshold_spin.setDecimals(1)
         self.threshold_spin.setValue(threshold)
         self.threshold_spin.setSuffix(" RGB")
-        layout.addRow("Difference threshold:", self.threshold_spin)
+        layout.addRow("Threshold:", self.threshold_spin)
 
         self.softness_spin = QDoubleSpinBox()
         self.softness_spin.setRange(0.1, 50.0)
@@ -114,170 +114,207 @@ class SmartMaskDialog(QDialog):
 class SmartMaskAction():
 
     def apply_smart_mask(self):
-            layer = self.selected_layer()
-            if not layer:
-                self.status.setText("No layer selected")
-                return
-            if layer is self.layers[0]:
-                self.status.setText("Background layer cannot be smart masked")
-                return
 
-            bbox = layer.original_visible_bbox()
-            if bbox is None:
-                self.status.setText("Layer has no visible content")
-                return
+        layer = self.selected_layer()
+        if not layer:
+            self.status.setText("No layer selected")
+            return
+        if layer is self.layers[0]:
+            self.status.setText("Background layer cannot be smart masked")
+            return
 
-            x0, y0, x1, y1 = bbox
-            width = x1 - x0
-            height = y1 - y0
-            if width <= 0 or height <= 0:
-                return
+        bbox = layer.original_visible_bbox()
+        if bbox is None:
+            self.status.setText("Layer has no visible content")
+            return
 
-            dialog = SmartMaskDialog(self)
-            if dialog.exec() != QDialog.DialogCode.Accepted:
-                return
+        x0, y0, x1, y1 = bbox
+        width = x1 - x0
+        height = y1 - y0
+        if width <= 0 or height <= 0:
+            return
 
-            threshold = dialog.threshold
-            softness_percent = dialog.softness_percent
-            min_object_size_percent = dialog.min_object_size_percent
-            cleanup_percent = dialog.cleanup_percent
+        dialog = SmartMaskDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
 
-            min_side = min(width, height)
-            softness = softness_percent / 100.0 * min_side
-            softness = min(softness, min_side / 2.0)
+        threshold = dialog.threshold
+        softness_percent = dialog.softness_percent
+        min_object_size_percent = dialog.min_object_size_percent
+        cleanup_percent = dialog.cleanup_percent
 
-            min_object_size = min_object_size_percent / 100.0 * (width * height)
+        min_side = min(width, height)
+        softness = softness_percent / 100.0 * min_side
+        softness = min(softness, min_side / 2.0)
 
-            cleanup = cleanup_percent / 100.0 * min_side
-            cleanup = max(1, int(round(cleanup))) if cleanup_percent > 0 else 0
+        min_object_size = min_object_size_percent / 100.0 * (width * height)
 
-            layer_x = int(round(layer.x))
-            layer_y = int(round(layer.y))
+        cleanup = cleanup_percent / 100.0 * min_side
+        cleanup = max(1, int(round(cleanup))) if cleanup_percent > 0 else 0
 
-            canvas_x0 = layer_x + x0
-            canvas_y0 = layer_y + y0
-            canvas_x1 = layer_x + x1
-            canvas_y1 = layer_y + y1
+        layer_x = int(round(layer.x))
+        layer_y = int(round(layer.y))
 
-            crop_x0 = max(0, canvas_x0)
-            crop_y0 = max(0, canvas_y0)
-            crop_x1 = min(self.canvas_width, canvas_x1)
-            crop_y1 = min(self.canvas_height, canvas_y1)
+        canvas_x0 = layer_x + x0
+        canvas_y0 = layer_y + y0
+        canvas_x1 = layer_x + x1
+        canvas_y1 = layer_y + y1
 
-            if crop_x1 <= crop_x0 or crop_y1 <= crop_y0:
-                self.status.setText("Layer content is outside the canvas")
-                return
+        crop_x0 = max(0, canvas_x0)
+        crop_y0 = max(0, canvas_y0)
+        crop_x1 = min(self.canvas_width, canvas_x1)
+        crop_y1 = min(self.canvas_height, canvas_y1)
 
-            local_x0 = crop_x0 - layer_x
-            local_y0 = crop_y0 - layer_y
-            local_x1 = crop_x1 - layer_x
-            local_y1 = crop_y1 - layer_y
+        if crop_x1 <= crop_x0 or crop_y1 <= crop_y0:
+            self.status.setText("Layer content is outside the canvas")
+            return
 
-            layer_crop = layer.image.crop((local_x0, local_y0, local_x1, local_y1))
-            background = self.layers[0]
-            background_crop = background.image.crop((crop_x0, crop_y0, crop_x1, crop_y1))
+        local_x0 = crop_x0 - layer_x
+        local_y0 = crop_y0 - layer_y
+        local_x1 = crop_x1 - layer_x
+        local_y1 = crop_y1 - layer_y
 
-            layer_rgb = np.asarray(layer_crop, dtype=np.float32)
-            background_rgb = np.asarray(background_crop, dtype=np.float32)
+        layer_crop = layer.image.crop((local_x0, local_y0, local_x1, local_y1))
+        background = self.layers[0]
+        background_crop = background.image.crop((crop_x0, crop_y0, crop_x1, crop_y1))
 
-            difference = np.mean(np.abs(layer_rgb - background_rgb), axis=2)
-            character_mask = difference >= threshold
+        layer_rgb = np.asarray(layer_crop, dtype=np.float32)
+        background_rgb = np.asarray(background_crop, dtype=np.float32)
 
-            source_alpha = np.asarray(
-                layer.alpha.crop((local_x0, local_y0, local_x1, local_y1)),
-                dtype=np.uint8,
+        difference = np.mean(np.abs(layer_rgb - background_rgb), axis=2)
+        character_mask = difference >= threshold
+
+        source_alpha = np.asarray(
+            layer.alpha.crop((local_x0, local_y0, local_x1, local_y1)),
+            dtype=np.uint8,
+        )
+        character_mask &= source_alpha > 0
+
+        if cleanup > 0:
+            structure = ndimage.generate_binary_structure(2, 2)
+            character_mask = ndimage.binary_closing(
+                character_mask,
+                structure=structure,
+                iterations=cleanup,
             )
-            character_mask &= source_alpha > 0
-
-            if cleanup > 0:
-                structure = ndimage.generate_binary_structure(2, 2)
-                character_mask = ndimage.binary_closing(
-                    character_mask,
-                    structure=structure,
-                    iterations=cleanup,
-                )
-                character_mask = ndimage.binary_opening(
-                    character_mask,
-                    structure=structure,
-                    iterations=cleanup,
-                )
-
-            if min_object_size > 0:
-                labels, count = ndimage.label(character_mask)
-                if count > 0:
-                    sizes = np.bincount(labels.ravel())
-                    keep = sizes >= min_object_size
-                    keep[0] = False
-                    character_mask = keep[labels]
-
-            if not np.any(character_mask):
-                self.status.setText("Character could not be detected")
-                return
-
-            character_mask = ndimage.binary_fill_holes(character_mask)
-
-            outside_distance = ndimage.distance_transform_edt(~character_mask)
-
-            if softness <= 0:
-                generated_alpha = character_mask.astype(np.float32) * 255.0
-            else:
-                t = np.clip(outside_distance / softness, 0.0, 1.0)
-                smooth = t * t * (3.0 - 2.0 * t)
-                generated_alpha = (1.0 - smooth) * 255.0
-                generated_alpha[character_mask] = 255.0
-
-            generated_alpha = np.minimum(
-                generated_alpha,
-                source_alpha.astype(np.float32),
+            character_mask = ndimage.binary_opening(
+                character_mask,
+                structure=structure,
+                iterations=cleanup,
             )
 
-            before = layer.alpha.copy()
+        if min_object_size > 0:
+            labels, count = ndimage.label(character_mask)
+            if count > 0:
+                sizes = np.bincount(labels.ravel())
+                keep = sizes >= min_object_size
+                keep[0] = False
+                character_mask = keep[labels]
 
-            full_alpha = np.asarray(
-                layer.alpha,
-                dtype=np.uint8,
-            ).copy()
+        if not np.any(character_mask):
+            self.status.setText("Character could not be detected")
+            return
 
-            full_alpha[
-                local_y0:local_y1,
-                local_x0:local_x1,
-            ] = generated_alpha.astype(np.uint8)
+        character_mask = ndimage.binary_fill_holes(character_mask)
 
-            after = Image.fromarray(
-                full_alpha,
-                mode="L",
+        outside_distance = ndimage.distance_transform_edt(~character_mask)
+
+
+        if softness <= 0:
+            generated_alpha = character_mask.astype(np.float32) * 255.0
+
+        else:
+            # ---------------------------------------------------------
+            # Расширяем маску перед сглаживанием.
+            #
+            # Это компенсирует "съедание" границы при feathering:
+            # исходный контур остаётся внутри полностью непрозрачной
+            # области, а плавный переход начинается уже за ним.
+            # ---------------------------------------------------------
+
+            expansion = max(1.0, float(softness)) * 0.5
+
+            # Евклидово расстояние от каждого внешнего пикселя
+            # до исходной маски.
+            distance_from_mask = ndimage.distance_transform_edt(
+                ~character_mask
             )
 
-            if np.array_equal(
-                np.asarray(before),
-                np.asarray(after),
-            ):
-                self.status.setText("Smart Mask made no changes")
-                return
+            # Расширяем маску на softness пикселей.
+            expanded_mask = distance_from_mask <= expansion
 
-            layer.alpha = after
-            layer.alpha_dirty = True
-            layer.recalculate_content_bbox()
-
-            index = self.layers.index(layer)
-
-            self.push_undo({
-                "type": "smart_mask",
-                "index": index,
-                "before": before,
-                "after": after,
-            })
-
-            self.update_layer_preview(layer)
-            self.update_history_buttons()
-            self.update_project_stats()
-            self.update_window_title()
-            self.view.viewport().update()
-
-            self.status.setText(
-                f"Smart Mask applied "
-                f"(threshold {threshold:.1f}, "
-                f"softness {softness_percent:.1f}%, "
-                f"min object {min_object_size_percent:.2f}%, "
-                f"cleanup {cleanup_percent:.2f}%)"
+            # Расстояние наружу уже от расширенной маски.
+            outside_distance = ndimage.distance_transform_edt(
+                ~expanded_mask
             )
+
+            # Плавный переход.
+            t = np.clip(
+                outside_distance / softness,
+                0.0,
+                1.0,
+            )
+
+            # Smoothstep.
+            smooth = t * t * (3.0 - 2.0 * t)
+
+            generated_alpha = (1.0 - smooth) * 255.0
+
+            # Вся расширенная область полностью непрозрачная.
+            generated_alpha[expanded_mask] = 255.0
+
+        generated_alpha = np.minimum(
+            generated_alpha,
+            source_alpha.astype(np.float32),
+        )
+
+        before = layer.alpha.copy()
+
+        full_alpha = np.asarray(
+            layer.alpha,
+            dtype=np.uint8,
+        ).copy()
+
+        full_alpha[
+            local_y0:local_y1,
+            local_x0:local_x1,
+        ] = generated_alpha.astype(np.uint8)
+
+        after = Image.fromarray(
+            full_alpha,
+            mode="L",
+        )
+
+        if np.array_equal(
+            np.asarray(before),
+            np.asarray(after),
+        ):
+            self.status.setText("Smart Mask made no changes")
+            return
+
+        layer.alpha = after
+        layer.alpha_dirty = True
+        layer.recalculate_content_bbox()
+
+        index = self.layers.index(layer)
+
+        self.push_undo({
+            "type": "smart_mask",
+            "index": index,
+            "before": before,
+            "after": after,
+        })
+
+        self.update_layer_preview(layer)
+        self.update_history_buttons()
+        self.update_project_stats()
+        self.update_window_title()
+        self.view.viewport().update()
+
+        self.status.setText(
+            f"Smart Mask applied "
+            f"(threshold {threshold:.1f}, "
+            f"softness {softness_percent:.1f}%, "
+            f"min object {min_object_size_percent:.2f}%, "
+            f"cleanup {cleanup_percent:.2f}%)"
+        )
