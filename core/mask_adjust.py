@@ -5,7 +5,6 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
-from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -20,13 +19,13 @@ class MaskAdjustDialog(QDialog):
     def __init__(
         self,
         parent=None,
-        offset=None,
-        contrast=None,
-        black_point=None,
-        white_point=None,
-        gamma=None,
-        blur=None,
-        sharpen=None,
+        offset=0,
+        contrast=0.0,
+        black_point=0,
+        white_point=255,
+        gamma=1.0,
+        blur=0.0,
+        sharpen=0.0,
         invert=False,
     ):
         super().__init__(parent)
@@ -34,72 +33,6 @@ class MaskAdjustDialog(QDialog):
         self.setWindowTitle("Mask Adjust")
         self.setModal(True)
         self.setMinimumWidth(400)
-
-        settings = QSettings("kPanorama", "kPanorama")
-
-        if offset is None:
-            offset = 0
-            # settings.value(
-            #     "mask_adjust/offset",
-            #     0.0,
-            #     type=float,
-            # )
-
-        if contrast is None:
-            contrast = 0.0
-            # settings.value(
-            #     "mask_adjust/contrast",
-            #     0.0,
-            #     type=float,
-            # )
-
-        if black_point is None:
-            black_point = 0.0
-            # settings.value(
-            #     "mask_adjust/black_point",
-            #     0.0,
-            #     type=float,
-            # )
-
-        if white_point is None:
-            white_point = 255.0
-            # settings.value(
-            #     "mask_adjust/white_point",
-            #     255.0,
-            #     type=float,
-            # )
-
-        if gamma is None:
-            gamma = 1.0
-            # settings.value(
-            #     "mask_adjust/gamma",
-            #     1.0,
-            #     type=float,
-            # )
-
-        if blur is None:
-            blur = 0.0
-            # settings.value(
-            #     "mask_adjust/blur",
-            #     0.0,
-            #     type=float,
-            # )
-
-        if sharpen is None:
-            sharpen = 0.0
-            # settings.value(
-            #     "mask_adjust/sharpen",
-            #     0.0,
-            #     type=float,
-            # )
-
-        if invert is None:
-            invert = False
-            # settings.value(
-            #     "mask_adjust/invert",
-            #     False,
-            #     type=bool,
-            # )
 
         layout = QFormLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -115,15 +48,9 @@ class MaskAdjustDialog(QDialog):
         self.offset_spin.setDecimals(0)
         self.offset_spin.setValue(offset)
         self.offset_spin.setSuffix("")
+        self.offset_spin.setToolTip("Add or subtract alpha from the entire mask.")
 
-        self.offset_spin.setToolTip(
-            "Add or subtract alpha from the entire mask."
-        )
-
-        layout.addRow(
-            "Offset:",
-            self.offset_spin,
-        )
+        layout.addRow("Offset:", self.offset_spin)
 
         # ---------------------------------------------------------
         # Contrast
@@ -135,15 +62,9 @@ class MaskAdjustDialog(QDialog):
         self.contrast_spin.setDecimals(0)
         self.contrast_spin.setValue(contrast)
         self.contrast_spin.setSuffix(" %")
+        self.contrast_spin.setToolTip("Increase or decrease contrast around 50% opacity.")
 
-        self.contrast_spin.setToolTip(
-            "Increase or decrease contrast around 50% opacity."
-        )
-
-        layout.addRow(
-            "Contrast:",
-            self.contrast_spin,
-        )
+        layout.addRow("Contrast:", self.contrast_spin)
 
         # ---------------------------------------------------------
         # Black point
@@ -155,14 +76,9 @@ class MaskAdjustDialog(QDialog):
         self.black_spin.setDecimals(0)
         self.black_spin.setValue(black_point)
 
-        self.black_spin.setToolTip(
-            "Pixels at or below this value become fully transparent."
-        )
+        self.black_spin.setToolTip("Pixels at or below this value become fully transparent.")
 
-        layout.addRow(
-            "Black point:",
-            self.black_spin,
-        )
+        layout.addRow("Black point:", self.black_spin)
 
         # ---------------------------------------------------------
         # White point
@@ -174,14 +90,9 @@ class MaskAdjustDialog(QDialog):
         self.white_spin.setDecimals(0)
         self.white_spin.setValue(white_point)
 
-        self.white_spin.setToolTip(
-            "Pixels at or above this value become fully opaque."
-        )
+        self.white_spin.setToolTip("Pixels at or above this value become fully opaque.")
 
-        layout.addRow(
-            "White point:",
-            self.white_spin,
-        )
+        layout.addRow("White point:", self.white_spin)
 
         # ---------------------------------------------------------
         # Gamma
@@ -193,14 +104,9 @@ class MaskAdjustDialog(QDialog):
         self.gamma_spin.setDecimals(2)
         self.gamma_spin.setValue(gamma)
 
-        self.gamma_spin.setToolTip(
-            "Adjust the middle tones of the mask."
-        )
+        self.gamma_spin.setToolTip("Adjust the middle tones of the mask.")
 
-        layout.addRow(
-            "Gamma:",
-            self.gamma_spin,
-        )
+        layout.addRow("Gamma:", self.gamma_spin)
 
         # ---------------------------------------------------------
         # Blur
@@ -213,14 +119,9 @@ class MaskAdjustDialog(QDialog):
         self.blur_spin.setValue(blur)
         self.blur_spin.setSuffix(" px")
 
-        self.blur_spin.setToolTip(
-            "Gaussian blur applied to the mask."
-        )
+        self.blur_spin.setToolTip("Gaussian blur applied to the mask.")
 
-        layout.addRow(
-            "Blur:",
-            self.blur_spin,
-        )
+        layout.addRow("Blur:", self.blur_spin)
 
         # ---------------------------------------------------------
         # Sharpen
@@ -232,14 +133,9 @@ class MaskAdjustDialog(QDialog):
         self.sharpen_spin.setDecimals(2)
         self.sharpen_spin.setValue(sharpen)
 
-        self.sharpen_spin.setToolTip(
-            "Increase local contrast and sharpen mask edges."
-        )
+        self.sharpen_spin.setToolTip("Increase local contrast and sharpen mask edges.")
 
-        layout.addRow(
-            "Sharpen:",
-            self.sharpen_spin,
-        )
+        layout.addRow("Sharpen:", self.sharpen_spin)
 
         # ---------------------------------------------------------
         # Invert
@@ -248,18 +144,14 @@ class MaskAdjustDialog(QDialog):
         self.invert_check = QCheckBox("Invert mask")
         self.invert_check.setChecked(invert)
 
-        layout.addRow(
-            "",
-            self.invert_check,
-        )
+        layout.addRow("", self.invert_check)
 
         # ---------------------------------------------------------
         # Buttons
         # ---------------------------------------------------------
 
         buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
 
         buttons.accepted.connect(self.save_and_accept)
@@ -300,50 +192,6 @@ class MaskAdjustDialog(QDialog):
         return self.invert_check.isChecked()
 
     def save_and_accept(self):
-        settings = QSettings("kPanorama", "kPanorama")
-
-        settings.setValue(
-            "mask_adjust/offset",
-            self.offset_spin.value(),
-        )
-
-        settings.setValue(
-            "mask_adjust/contrast",
-            self.contrast_spin.value(),
-        )
-
-        settings.setValue(
-            "mask_adjust/black_point",
-            self.black_spin.value(),
-        )
-
-        settings.setValue(
-            "mask_adjust/white_point",
-            self.white_spin.value(),
-        )
-
-        settings.setValue(
-            "mask_adjust/gamma",
-            self.gamma_spin.value(),
-        )
-
-        settings.setValue(
-            "mask_adjust/blur",
-            self.blur_spin.value(),
-        )
-
-        settings.setValue(
-            "mask_adjust/sharpen",
-            self.sharpen_spin.value(),
-        )
-
-        settings.setValue(
-            "mask_adjust/invert",
-            self.invert_check.isChecked(),
-        )
-
-        settings.sync()
-
         self.accept()
 
 
@@ -377,10 +225,7 @@ class MaskAdjustAction:
 
         before = layer.alpha.copy()
 
-        alpha = np.asarray(
-            layer.alpha,
-            dtype=np.float32,
-        )
+        alpha = np.asarray(layer.alpha, dtype=np.float32)
 
         # ---------------------------------------------------------
         # Offset
@@ -506,22 +351,14 @@ class MaskAdjustAction:
             255.0,
         ).astype(np.uint8)
 
-        after = Image.fromarray(
-            alpha,
-            mode="L",
-        )
+        after = Image.fromarray(alpha, mode="L")
 
         # ---------------------------------------------------------
         # Ничего не изменилось
         # ---------------------------------------------------------
 
-        if np.array_equal(
-            np.asarray(before),
-            np.asarray(after),
-        ):
-            self.status.setText(
-                "Mask Adjust made no changes"
-            )
+        if np.array_equal(np.asarray(before), np.asarray(after)):
+            self.status.setText("Mask Adjust made no changes")
             return
 
         # ---------------------------------------------------------

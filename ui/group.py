@@ -29,11 +29,30 @@ from context import icon
 
 class MainWindowGroup():
 
+
+    def get_group_layers(self, group):
+        return [ l for l in self.layers if l.group_id == group.id ]
+
+
+    def get_group(self, id):
+
+        if id is None:
+            return None
+
+        for group in self.groups:
+
+            if group.id == id:
+                return group
+
+        return None
+
+
     def create_group(self):
         group = LayerGroup()
         self.groups.append(group)
         self.rebuild_layers_ui()
         self.status.setText(f"Group created: {group.name}")
+
 
     def rename_group(self, group):
         dialog = QInputDialog(self)
@@ -62,9 +81,7 @@ class MainWindowGroup():
         self.update_window_title()
         self.update_project_stats()
 
-        self.status.setText(
-            f"Group renamed to: {name}"
-        )
+        self.status.setText(f"Group renamed to: {name}")
 
 
     def delete_group(self, group):
@@ -72,35 +89,45 @@ class MainWindowGroup():
             self,
             "Delete Group",
             f'Delete group "{group.name}"?',
-            QMessageBox.StandardButton.Yes
-            | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
 
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        # Убираем принадлежность слоёв к группе
+        layers = []
+
+        # Удаляем слои
         for layer in self.layers:
+            index = self.layers.index(layer)
+
             if layer.group_id == group.id:
-                layer.group_id = None
+                layers.append((index, self.layers.pop(index)))
 
         # Удаляем группу
-        if group in self.groups:
-            self.groups.remove(group)
+        index = self.groups.index(group)
+        self.groups.remove(group)
+
+        self.push_undo({
+            "type": "delete_group",
+            "index": index,
+            "group": group,
+            "layers": layers,
+        })
 
         self.rebuild_scene()
 
         self.update_window_title()
         self.update_project_stats()
 
-        self.status.setText(
-            f"Group deleted: {group.name}"
-        )
+        self.status.setText(f"Group deleted: {group.name}")
 
 
     def show_group_context_menu(self, group, position):
         menu = QMenu(self)
+
+        index = self.groups.index(group)
 
         rename_action = menu.addAction("Rename Group")
 
@@ -108,11 +135,11 @@ class MainWindowGroup():
 
         move_up_action = menu.addAction("Move Up")
         move_up_action.triggered.connect(self.move_group_up)
-        # move_up_action.setEnabled(index > 0 and len(self.layers) > 2 and index != len(self.layers) - 1)
+        move_up_action.setEnabled(index < len(self.groups) - 1)
 
         move_down_action = menu.addAction("Move Down")
         move_down_action.triggered.connect(self.move_group_down)
-        # move_down_action.setEnabled(index > 1)
+        move_down_action.setEnabled(index > 0)
 
         menu.addSeparator()
 
@@ -131,30 +158,21 @@ class MainWindowGroup():
         layer = self.selected_layer()
 
         if layer is None:
-            QMessageBox.information(
-                self,
-                "Group",
-                "Select a layer.",
-            )
+            QMessageBox.information(self, "Group", "Select a layer first.")
             return
 
         if not self.groups:
-            QMessageBox.information(
-                self,
-                "Group",
-                "Create a group first.",
-            )
+            QMessageBox.information(self, "Group", "Create a group first.")
             return
 
-        group_names = [
-            group.name
-            for group in self.groups
-        ]
+        group_names = [ group.name for group in self.groups ]
 
         current_index = 0
 
         if layer.group_id is not None:
+
             for i, group in enumerate(self.groups):
+
                 if group.id == layer.group_id:
                     current_index = i
                     break
@@ -171,85 +189,48 @@ class MainWindowGroup():
         if not ok:
             return
 
-        group = self.groups[
-            group_names.index(name)
-        ]
+        group = self.groups[group_names.index(name)]
 
         old_group_id = layer.group_id
 
         if old_group_id == group.id:
             return
 
-        # Убираем из старой группы
-        if old_group_id is not None:
-            for old_group in self.groups:
-                if old_group.id == old_group_id:
-                    if layer in old_group.layers:
-                        old_group.layers.remove(layer)
-                    break
-
-        # Добавляем в новую
         layer.group_id = group.id
 
-        if layer not in group.layers:
-            group.layers.append(layer)
+        self.rebuild_layers_ui()
+        self.update_scene_layer_order()
 
-        self.rebuild_scene()
+        self.status.setText(f'"{layer.name}" moved to "{group.name}"')
 
-        self.status.setText(
-            f"«{layer.name}» → «{group.name}»"
-        )
 
     def remove_selected_layer_from_group(self):
         layer = self.selected_layer()
 
         if layer is None:
-            QMessageBox.information(
-                self,
-                "Группа",
-                "Сначала выберите слой.",
-            )
+            QMessageBox.information(self, "Group", "Select a layer first.")
             return
 
         if layer.group_id is None:
-            QMessageBox.information(
-                self,
-                "Группа",
-                "Этот слой не входит в группу.",
-            )
             return
-
-        old_group = None
-
-        for group in self.groups:
-            if group.id == layer.group_id:
-                old_group = group
-                break
-
-        if old_group is not None:
-            if layer in old_group.layers:
-                old_group.layers.remove(layer)
 
         layer.group_id = None
 
-        self.rebuild_scene()
+        self.rebuild_layers_ui()
+        self.update_scene_layer_order()
 
-        self.status.setText(
-            f"«{layer.name}» удалён из группы"
-        )
+        self.status.setText(f'"{layer.name}" removed from the group.')
+
 
     def export_selected_group(self):
         group = self.selected_group()
 
         if group is None:
-            QMessageBox.information(
-                self,
-                "Экспорт группы",
-                "Сначала выберите группу.",
-            )
+            QMessageBox.information(self, "Group export", "Select a group first.")
             return
 
         self.export_group(group)
+
 
     def create_group_list_item(self, group):
         item = QListWidgetItem()
@@ -260,16 +241,10 @@ class MainWindowGroup():
 
         widget = QWidget()
 
-        widget.setContextMenuPolicy(
-            Qt.ContextMenuPolicy.CustomContextMenu
-        )
+        widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
         widget.customContextMenuRequested.connect(
-            lambda position, g=group:
-                self.show_group_context_menu(
-                    g,
-                    widget.mapToGlobal(position)
-                )
+            lambda position, g=group: self.show_group_context_menu(g, widget.mapToGlobal(position))
         )
 
         layout = QHBoxLayout(widget)
@@ -318,17 +293,9 @@ class MainWindowGroup():
         name_edit = QLabel(group.name)
         name_edit.setStyleSheet("font-weight: bold;")
         name_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-
-        name_edit.setContextMenuPolicy(
-            Qt.ContextMenuPolicy.CustomContextMenu
-        )
-
+        name_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         name_edit.customContextMenuRequested.connect(
-            lambda position, g=group:
-                self.show_group_context_menu(
-                    g,
-                    name_edit.mapToGlobal(position)
-                )
+            lambda position, g=group: self.show_group_context_menu(g, name_edit.mapToGlobal(position))
         )
 
         # -------------------------
@@ -338,6 +305,7 @@ class MainWindowGroup():
         tag_button = QPushButton("#")
         tag_button.setFixedSize(24, 24)
         tag_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        tag_button.clicked.connect(lambda checked=False, g=group: self.show_group_tag_menu(g))
 
         group.tag_button = tag_button
         self.update_group_tag_button(group)
@@ -353,6 +321,7 @@ class MainWindowGroup():
         coords_button.setFlat(True)
         coords_button.setToolTip("Copy group coordinates")
         coords_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        coords_button.clicked.connect(lambda: self.copy_group_coords(group))
 
         # -------------------------
         # Save
@@ -365,6 +334,7 @@ class MainWindowGroup():
         export_button.setFlat(True)
         export_button.setToolTip("Save group")
         export_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        export_button.clicked.connect(lambda: self.export_group(group))
 
         # -------------------------
         # Layout
@@ -396,69 +366,15 @@ class MainWindowGroup():
         def toggle_visibility():
             group.visible = not group.visible
 
-            for layer in group.layers:
+            for layer in self.get_group_layers(group):
                 self.toggle_layer_visibility(layer=layer)
 
             update_eye_button()
 
         eye_button.clicked.connect(toggle_visibility)
 
-        # =================================================
-        # Rename
-        # =================================================
-
-        # def start_group_rename():
-        #     name_edit.setReadOnly(False)
-        #     name_edit.setFocus()
-        #     name_edit.selectAll()
-
-
-        # def finish_group_rename():
-        #     if name_edit.isReadOnly():
-        #         return
-
-        #     name = name_edit.text().strip()
-
-        #     if not name:
-        #         name = "Group"
-
-        #     group.name = name
-        #     name_edit.setText(name)
-        #     name_edit.setReadOnly(True)
-
-        #     self.update_window_title()
-        #     self.update_project_stats()
-
-
-        # name_edit.editingFinished.connect(finish_group_rename)
-
-
-        # =================================================
-        # Tag
-        # =================================================
-
-        tag_button.clicked.connect(
-            lambda checked=False, g=group:
-                self.show_group_tag_menu(g)
-        )
-
-        # =================================================
-        # Coordinates
-        # =================================================
-
-        coords_button.clicked.connect(
-            lambda: self.copy_group_coords(group)
-        )
-
-        # =================================================
-        # PNG
-        # =================================================
-
-        export_button.clicked.connect(
-            lambda: self.export_group(group)
-        )
-
         return item
+
 
     def show_group_tag_menu(self, group):
         menu = QMenu(self)
@@ -477,15 +393,11 @@ class MainWindowGroup():
             action.setChecked(group.tag == tag)
 
             action.triggered.connect(
-                lambda checked=False, t=tag, g=group:
-                    self.set_group_tag(g, t)
+                lambda checked=False, t=tag, g=group: self.set_group_tag(g, t)
             )
 
-        menu.exec(
-            group.tag_button.mapToGlobal(
-                group.tag_button.rect().bottomLeft()
-            )
-        )
+        menu.exec(group.tag_button.mapToGlobal(group.tag_button.rect().bottomLeft()))
+
 
     def set_group_tag(self, group, tag):
         if tag not in {None, "HQ", "MQ", "LQ", "SQ"}:
@@ -500,6 +412,7 @@ class MainWindowGroup():
 
         self.update_window_title()
         self.update_project_stats()
+
 
     def update_group_tag_button(self, group):
         tag = group.tag
@@ -520,8 +433,7 @@ class MainWindowGroup():
             color = "#1CD5FF"
             size = 14
 
-        group.tag_button.setStyleSheet(
-            """
+        group.tag_button.setStyleSheet("""
             QPushButton {
                 background: transparent;
                 border: none;
@@ -533,19 +445,20 @@ class MainWindowGroup():
                 background: #333333;
                 border-radius: 4px;
             }
-            """ % (color, size)
-        )
+        """ % (color, size))
 
 
-    # def select_group(self, index):
-    #     if not 0 <= index < len(self.groups):
-    #         return
+    def select_group(self, index):
+        return
 
-    #     group = self.groups[index]
+        if not 0 <= index < len(self.groups):
+            return
 
-    #     if group.list_item:
-    #         row = self.layer_list.row(group.list_item)
-    #         self.layer_list.setCurrentRow(row)
+        group = self.groups[index]
+
+        if group.list_item:
+            row = self.layer_list.row(group.list_item)
+            self.layer_list.setCurrentRow(row)
 
 
     def selected_group_index(self):
@@ -568,29 +481,62 @@ class MainWindowGroup():
         if not item:
             return None
 
-        group = item.data(
-            Qt.ItemDataRole.UserRole + 1
-        )
+        group = item.data(Qt.ItemDataRole.UserRole + 1)
 
         if group not in self.groups:
             return None
 
         return group
 
+
+    # ========================================================
+    # Move
+    # ========================================================
+
+    def move_group_down(self):
+        index = self.selected_group_index()
+
+        if index is None:
+            return
+
+        if index <= 0:
+            return
+
+        self.groups[index - 1], self.groups[index] = (
+            self.groups[index],
+            self.groups[index - 1],
+        )
+
+        # self.select_group(index - 1)
+        self.rebuild_layers_ui()
+        self.update_scene_layer_order()
+
+
+    def move_group_up(self):
+        index = self.selected_group_index()
+
+        if index is None:
+            return
+
+        if index >= len(self.groups) - 1:
+            return
+
+        self.groups[index + 1], self.groups[index] = (
+            self.groups[index],
+            self.groups[index + 1],
+        )
+
+        # self.select_group(index + 1)
+        self.rebuild_layers_ui()
+        self.update_scene_layer_order()
+
+
     def copy_group_coords(self, group):
-        layers = [
-            layer
-            for layer in self.layers
-            if layer.group_id == group.id
-            and layer.visible
-        ]
+
+        layers = [ l for l in self.layers if l.group_id == group.id and l.visible ]
 
         if not layers:
-            QMessageBox.information(
-                self,
-                "Координаты",
-                "В группе нет видимых слоёв."
-            )
+            QMessageBox.information(self, "Coordinates", "No visible layers in the group.")
             return
 
         left = top = right = bottom = None
@@ -624,6 +570,7 @@ class MainWindowGroup():
 
         self.status.setText(f"Coordinates copied: {text}")
 
+
     def get_group_save_name(self, group):
         name = group.name.strip()
 
@@ -637,22 +584,14 @@ class MainWindowGroup():
 
         return name
 
+
     def export_group(self, group):
 
         if not self.project_path:
-            QMessageBox.information(
-                self,
-                "Save Group",
-                "Save the project first."
-            )
+            QMessageBox.information(self, "Save Group", "Save the project first.")
             return
 
-        layers = [
-            layer
-            for layer in self.layers
-            if layer.group_id == group.id
-            and layer.visible
-        ]
+        layers = [ l for l in self.layers if l.group_id == group.id and l.visible ]
 
         if not layers:
             QMessageBox.information(
@@ -662,9 +601,7 @@ class MainWindowGroup():
             )
             return
 
-        project_dir = os.path.dirname(
-            os.path.abspath(self.project_path)
-        )
+        project_dir = os.path.dirname(os.path.abspath(self.project_path))
 
         # -------------------------------------------------
         # Определяем общий bbox группы
@@ -700,11 +637,7 @@ class MainWindowGroup():
                 bottom = max(bottom, layer_bottom)
 
         if left is None:
-            QMessageBox.information(
-                self,
-                "Save Group",
-                "Group is completely transparent."
-            )
+            QMessageBox.information(self, "Save Group", "Group is completely transparent.")
             return
 
         width = right - left
@@ -714,11 +647,7 @@ class MainWindowGroup():
         # Собираем группу
         # -------------------------------------------------
 
-        result = Image.new(
-            "RGBA",
-            (width, height),
-            (0, 0, 0, 0)
-        )
+        result = Image.new("RGBA", (width, height), (0, 0, 0, 0))
 
         # self.layers идут снизу вверх,
         # поэтому сохраняем этот порядок
@@ -747,10 +676,7 @@ class MainWindowGroup():
             paste_x = int(layer.x + layer_left - left)
             paste_y = int(layer.y + layer_top - top)
 
-            result.alpha_composite(
-                rgba,
-                (paste_x, paste_y)
-            )
+            result.alpha_composite(rgba, (paste_x, paste_y))
 
         # -------------------------------------------------
         # Имя файла
@@ -760,11 +686,7 @@ class MainWindowGroup():
         # Если хочешь, ниже можно сделать отдельный
         # get_group_save_name(group).
         filename = self.get_group_save_name(group)
-
-        path = os.path.join(
-            project_dir,
-            filename + ".png"
-        )
+        path = os.path.join(project_dir, filename + ".png")
 
         # -------------------------------------------------
         # Сохраняем
@@ -780,19 +702,9 @@ class MainWindowGroup():
             )
 
             # Координаты результата относительно canvas
-            QApplication.clipboard().setText(
-                f"({left}, {top})"
-            )
+            QApplication.clipboard().setText(f"({left}, {top})")
 
-            self.status.setText(
-                f"Group saved: {os.path.basename(path)} "
-                f"({left}, {top})"
-            )
+            self.status.setText(f"Group saved: {os.path.basename(path)} ({left}, {top})")
 
         except Exception as e:
-
-            QMessageBox.critical(
-                self,
-                "Error saving",
-                str(e)
-            )
+            QMessageBox.critical(self, "Error saving", str(e))

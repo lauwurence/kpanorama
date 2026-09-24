@@ -184,16 +184,13 @@ class SmartMaskAction():
         background = self.layers[0]
         background_crop = background.image.crop((crop_x0, crop_y0, crop_x1, crop_y1))
 
-        layer_rgb = np.asarray(layer_crop, dtype=np.float32)
-        background_rgb = np.asarray(background_crop, dtype=np.float32)
+        layer_rgb = np.asarray(layer_crop, dtype=np.uint8)
+        background_rgb = np.asarray(background_crop, dtype=np.uint8)
 
         difference = np.mean(np.abs(layer_rgb - background_rgb), axis=2)
         character_mask = difference >= threshold
 
-        source_alpha = np.asarray(
-            layer.alpha.crop((local_x0, local_y0, local_x1, local_y1)),
-            dtype=np.uint8,
-        )
+        source_alpha = np.asarray(layer.alpha.crop((local_x0, local_y0, local_x1, local_y1)), dtype=np.uint8)
         character_mask &= source_alpha > 0
 
         if cleanup > 0:

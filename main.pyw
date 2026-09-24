@@ -13,7 +13,6 @@ from PyQt6.QtGui import (
     QImage,
     QPainter,
     QPixmap,
-    QIcon,
     QImageReader,
 )
 from PyQt6.QtWidgets import (
@@ -23,22 +22,18 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
-    QListWidget,
     QListWidgetItem,
     QMainWindow,
     QMenu,
     QMessageBox,
     QPushButton,
-    QSpinBox,
     QSlider,
     QSplitter,
     QToolBar,
     QWidget,
-    QLineEdit,
     QToolButton,
     QColorDialog,
     QVBoxLayout,
-    QFrame,
 )
 
 from core.layer import Layer, LayerPreviewItem
@@ -47,14 +42,15 @@ from project.project_io import ProjectIO
 
 from ui.canvas import CanvasView
 from ui.group import MainWindowGroup
-from ui.layer import LayerListWidget, LayerRowWidget
+from ui.layer import MainWindowLayer, LayerListWidget, LayerRowWidget
+from ui.brush import MainWindowBrush
 
 from core.smart_mask import SmartMaskAction
 from core.edge_mask import EdgeMaskAction
 from core.dark_cut import DarkCutAction
 from core.mask_adjust import MaskAdjustAction
 
-APP_VERSION = (0, 1, 4)
+APP_VERSION = (0, 1, 5)
 
 import context
 
@@ -73,18 +69,30 @@ if sys.platform == "win32":
 # PIL -> QImage
 # ============================================================
 
-def pil_to_qimage(img):
-    if img.mode != "RGBA":
-        img = img.convert("RGBA")
+def pil_to_qimage(img, width=None, height=None):
 
-    data = img.tobytes("raw", "RGBA")
-    qimg = QImage(
-        data,
-        img.width,
-        img.height,
-        img.width * 4,
-        QImage.Format.Format_RGBA8888,
-    )
+    if isinstance(img, (tuple, list, set)):
+        r, g, b = img
+
+        qimg = QImage(
+            width,
+            height,
+            QImage.Format.Format_RGBA8888,
+        )
+        qimg.fill(QColor(r, g, b, 255))
+
+    else:
+        if img.mode != "RGBA":
+            img = img.convert("RGBA")
+
+        data = img.tobytes("raw", "RGBA")
+        qimg = QImage(
+            data,
+            img.width,
+            img.height,
+            img.width * 4,
+            QImage.Format.Format_RGBA8888,
+        )
 
     return qimg.copy()
 
@@ -93,7 +101,16 @@ def pil_to_qimage(img):
 # Main Window
 # ============================================================
 
-class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskAction, EdgeMaskAction, DarkCutAction, MaskAdjustAction):
+class MainWindow(QMainWindow,
+                 History,
+                 ProjectIO,
+                 MainWindowBrush,
+                 MainWindowLayer,
+                 MainWindowGroup,
+                 SmartMaskAction,
+                 EdgeMaskAction,
+                 DarkCutAction,
+                 MaskAdjustAction):
 
     def __init__(self):
         super().__init__()
@@ -122,6 +139,10 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         self.canvas_width = 0
         self.canvas_height = 0
 
+        self._checker = None
+        self._checker_box_width = None
+        self._checker_box_height = None
+
         # self.max_preview_size = 3000
         self.max_preview_size = None
         self.preview_scale = 1.0
@@ -140,6 +161,30 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         if geometry:
             self.restoreGeometry(geometry)
 
+
+    @property
+    def sorted_layers(self):
+        rv = []
+
+        for group in reversed(self.groups):
+
+            for layer in reversed(self.get_group_layers(group)):
+
+                if layer in rv:
+                    continue
+
+                rv.append(layer)
+
+        for layer in reversed(self.layers):
+
+            if layer in rv:
+                continue
+
+            rv.append(layer)
+
+        return list(reversed(rv))
+
+
     def create_mask_color_lut(self):
         lut = np.zeros((256, 3), dtype=np.uint8)
         lut[0] = (0, 0, 0)
@@ -154,66 +199,6 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         lut[255] = (225, 225, 225)
 
         return lut
-
-    def fill_layer_alpha(self, layer, white):
-
-        if not layer:
-            return
-
-        if layer is self.layers[0]:
-            return
-
-        bbox = layer.original_visible_bbox()
-
-        if bbox is None:
-            return
-
-        x0, y0, x1, y1 = bbox
-
-        before = layer.alpha.crop((x0, y0, x1, y1))
-
-        if white:
-            layer.alpha = layer.content_alpha.copy()
-        else:
-            layer.alpha.paste(0, (x0, y0, x1, y1))
-
-        after = layer.alpha.crop((x0, y0, x1, y1))
-
-        if np.array_equal(np.asarray(before), np.asarray(after) ):
-            return
-
-        layer.recalculate_content_bbox()
-
-        index = self.layers.index(layer)
-
-        self.push_undo({
-            "type": "fill_alpha",
-            "index": index,
-            "rect": (x0, y0, x1, y1),
-            "before": before,
-            "after": after,
-        })
-
-        self.update_layer_preview(layer)
-
-        self.update_history_buttons()
-        self.update_project_stats()
-        self.view.viewport().update()
-
-
-    def is_layer_visible(self, layer):
-        if not layer.visible:
-            return False
-
-        if layer.group_id is None:
-            return True
-
-        for group in self.groups:
-
-            if group.id == layer.group_id:
-                return group.visible
-
-        return True
 
 
     # ========================================================
@@ -290,7 +275,9 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         self.view.centerOn(rect.center())
         self.update_zoom_status()
 
+
     def update_layer_preview_region(self, layer, rect):
+
         if not layer.item:
             return
 
@@ -322,8 +309,8 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
 
         src_x0 = max(0, int(np.floor(px0 / s)))
         src_y0 = max(0, int(np.floor(py0 / s)))
-        src_x1 = min(layer.image.width, int(np.ceil(px1 / s)))
-        src_y1 = min(layer.image.height, int(np.ceil(py1 / s)))
+        src_x1 = min(layer.width, int(np.ceil(px1 / s)))
+        src_y1 = min(layer.height, int(np.ceil(py1 / s)))
 
         if src_x1 <= src_x0 or src_y1 <= src_y0:
             return
@@ -335,18 +322,11 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
             rgb = Image.fromarray(rgb_array, "RGB").convert("RGBA")
 
         else:
-            rgb = layer.image.crop(
-                (src_x0, src_y0, src_x1, src_y1)
-            )
-
-            alpha = layer.alpha.crop(
-                (src_x0, src_y0, src_x1, src_y1)
-            )
+            rgb = layer.image.crop((src_x0, src_y0, src_x1, src_y1))
+            alpha = layer.alpha.crop((src_x0, src_y0, src_x1, src_y1))
 
             if layer.opacity != 100:
-                alpha = alpha.point(
-                    lambda a: int(a * layer.opacity / 100)
-                )
+                alpha = alpha.point(lambda a: int(a * layer.opacity / 100))
 
             rgb.putalpha(alpha)
 
@@ -366,7 +346,9 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
 
         layer.item.update_region(patch, px0, py0)
 
+
     def add_image_from_clipboard(self, qimage):
+
         if qimage.isNull():
             return
 
@@ -439,33 +421,25 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         except Exception as e:
             QMessageBox.critical(self, "Error pasting from clipboard", str(e))
 
+
     def add_solid_color_layer(self):
-        color = QColorDialog.getColor(
-            QColor(255, 255, 255),
-            self,
-            "Choose Layer Color",
-        )
+        color = QColorDialog.getColor(QColor(255, 255, 255), self, "Choose Layer Color")
 
         if not color.isValid():
             return
 
-        rgb = (
-            color.red(),
-            color.green(),
-            color.blue(),
-        )
+        rgb = (color.red(), color.green(), color.blue())
 
-        image = Image.new(
-            "RGB",
-            (self.canvas_width, self.canvas_height),
-            rgb,
-        )
+        image = Image.new("RGB", (self.canvas_width, self.canvas_height), rgb)
 
         layer = Layer(
             name=f"Solid {color.name().upper()}",
             image=image,
             x=0,
             y=0,
+            mode='solid',
+            width=self.canvas_width,
+            height=self.canvas_height
         )
 
         layer.invert_alpha()
@@ -482,7 +456,7 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         })
 
         self.rebuild_scene()
-        self.select_layer(index)
+        self.select_layer(layer)
 
         self.update_project_stats()
         self.update_history_buttons()
@@ -490,30 +464,6 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
 
         self.status.setText(f"Added solid color layer: {color.name().upper()}")
 
-    def duplicate_layer(self, layer):
-        if not self.layers:
-            return
-
-        if layer is None:
-            layer = self.selected_layer()
-
-        index = self.layers.index(layer)
-        new_index = index + 1
-        new_layer = layer.copy()
-        self.layers.insert(new_index, new_layer)
-        self.rebuild_scene()
-
-        self.select_layer(new_index)
-
-        self.push_undo({
-            "type": "add",
-            "index": new_index,
-            "layer": new_layer,
-        })
-
-        self.update_project_stats()
-        self.update_history_buttons()
-        self.update_window_title()
 
     # ========================================================
     # Project state
@@ -539,8 +489,6 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         self.saved_history = self.current_history
         self.update_window_title()
 
-    def update_project_title(self):
-        self.update_window_title()
 
     # ========================================================
     # Close
@@ -621,16 +569,14 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
             separator = QWidget()
             separator.setFixedWidth(21)
             separator.setFixedHeight(20)
-            separator.setStyleSheet(
-                """
+            separator.setStyleSheet("""
                 QWidget {
                     background-color: transparent;
                     border-left: 1px solid #555;
                     margin-left: 10px;
                     margin-right: 10px;
                 }
-                """
-            )
+            """)
 
             return separator
 
@@ -716,16 +662,14 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         layers_toolbar.setContentsMargins(0, 0, 0, 0)
 
         self.add_color_layer_button = QPushButton("+ Color")
-        self.add_group_button = QPushButton("+ Group")
-
-        self.add_color_layer_button.setStyleSheet(layer_button_style)
-        self.add_group_button.setStyleSheet(layer_button_style)
-
-        layers_toolbar.addWidget(self.add_color_layer_button)
-        layers_toolbar.addWidget(self.add_group_button)
-
         self.add_color_layer_button.clicked.connect(self.add_solid_color_layer)
+        self.add_color_layer_button.setStyleSheet(layer_button_style)
+        layers_toolbar.addWidget(self.add_color_layer_button)
+
+        self.add_group_button = QPushButton("+ Group")
         self.add_group_button.clicked.connect(self.create_group)
+        self.add_group_button.setStyleSheet(layer_button_style)
+        layers_toolbar.addWidget(self.add_group_button)
 
         # ----------------------------------------------------
         # Layers panel
@@ -1008,7 +952,7 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         layer = self.selected_layer()
 
         if layer:
-            layer_size = f"{layer.image.width} × {layer.image.height}"
+            layer_size = f"{layer.width} × {layer.height}"
             bounds = layer.visible_bounds()
 
             if bounds:
@@ -1120,7 +1064,6 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         if background is None:
             return
 
-        layer_image = np.asarray(layer.image.convert("RGB"), dtype=np.float32)
         bg_image = np.asarray(background.convert("RGB"), dtype=np.float32)
 
         # Яркость фона.
@@ -1182,9 +1125,7 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
             return
 
         self.mask_display_enabled = enabled
-
-        if hasattr(self, "mask_display_action"):
-            self.mask_display_action.setChecked(enabled)
+        self.mask_display_action.setChecked(enabled)
 
         for layer in self.layers:
 
@@ -1228,9 +1169,7 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
             return
 
         self.solo_mode_enabled = enabled
-
-        if hasattr(self, "solo_mode_action"):
-            self.solo_mode_action.setChecked(enabled)
+        self.solo_mode_action.setChecked(enabled)
 
         self.update_solo_visibility(update)
 
@@ -1274,48 +1213,6 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         zoom = self.view.transform().m11() * 100
         self.zoom_label.setText(f"Zoom: {zoom:.0f}%   | ")
 
-    # ========================================================
-    # Brush
-    # ========================================================
-
-    def set_brush_size(self, value):
-        value = max(1, min(3000, int(value)))
-
-        self.brush_size = value
-
-        if self.brush_size_slider.value() != value:
-            self.brush_size_slider.setValue(value)
-
-        self.brush_size_label.setText(f"{value}px")
-
-        self.view.viewport().update()
-
-    def set_brush_strength(self, value):
-        value = max(1, min(100, int(value)))
-
-        self.brush_strength = value
-
-        if self.brush_strength_slider.value() != value:
-            self.brush_strength_slider.setValue(value)
-
-        self.brush_strength_label.setText(f"{value}%")
-
-        self.view.viewport().update()
-
-    def set_brush_hardness(self, value):
-        value = max(0.0, min(100.0, float(value)))
-
-        self.brush_hardness = value
-
-        slider_value = int(round(value))
-
-        if self.brush_hardness_slider.value() != slider_value:
-            self.brush_hardness_slider.setValue(slider_value)
-
-        # Обновляем число справа.
-        self.brush_hardness_label.setText(f"{value:.0f}%")
-
-        self.view.viewport().update()
 
     # ========================================================
     # Layer list item widget
@@ -1337,81 +1234,6 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
 
         return item
 
-    # ========================================================
-    # Layer reorder
-    # ========================================================
-
-    def reorder_layers_from_list(self):
-        if not self.layers:
-            return
-
-        old_order = list(self.layers)
-        selected = self.selected_layer()
-
-        new_order = []
-
-        for row in range(self.layer_list.count() - 1, -1, -1):
-            item = self.layer_list.item(row)
-
-            if item is None:
-                continue
-
-            layer = item.data(Qt.ItemDataRole.UserRole)
-
-            if layer is not None:
-                new_order.append(layer)
-
-        if len(new_order) != len(old_order):
-            return
-
-        if set(new_order) != set(old_order):
-            return
-
-        # Фон всегда остаётся первым.
-        background = old_order[0]
-
-        if new_order[0] is not background:
-            new_order.remove(background)
-            new_order.insert(0, background)
-
-        if new_order == old_order:
-            return
-
-        # В undo сохраняем только порядок ID, а не сами Layer/QGraphicsPixmapItem.
-        old_ids = [layer.id for layer in old_order]
-        new_ids = [layer.id for layer in new_order]
-
-        self.layers = new_order
-
-        self.push_undo({
-            "type": "reorder",
-            "old_ids": old_ids,
-            "new_ids": new_ids,
-        })
-
-        self.rebuild_scene()
-
-        if selected in self.layers:
-            self.select_layer(self.layers.index(selected))
-
-        self.update_history_buttons()
-        self.update_window_title()
-
-    def restore_layer_order(self, ids):
-        layers_by_id = {layer.id: layer for layer in self.layers}
-        new_layers = []
-
-        for layer_id in ids:
-            layer = layers_by_id.get(layer_id)
-
-            if layer is not None:
-                new_layers.append(layer)
-
-        if len(new_layers) != len(self.layers):
-            return
-
-        self.layers = new_layers
-        self.rebuild_scene()
 
     # ========================================================
     # Layer context menu
@@ -1469,6 +1291,7 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
 
         add_to_group_action = menu.addAction("Add To Group")
         add_to_group_action.triggered.connect(self.add_selected_layer_to_group)
+        add_to_group_action.setEnabled(bool(self.groups))
 
         remove_from_group_action = menu.addAction("Remove From Group")
         remove_from_group_action.triggered.connect(self.remove_selected_layer_from_group)
@@ -1476,13 +1299,26 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
 
         menu.addSeparator()
 
+        group = self.get_group(layer.group_id)
+
+        if group:
+            layers = self.get_group_layers(group)
+            index = layers.index(layer)
+            can_move_up = index < len(layers) - 1
+            can_move_down = index > 0
+        else:
+            layers = self.get_separate_layers()
+            index = layers.index(layer)
+            can_move_up = index > 0 and index < len(layers) - 1
+            can_move_down = index > 1
+
         move_up_action = menu.addAction("Move Up")
         move_up_action.triggered.connect(self.move_layer_up)
-        move_up_action.setEnabled(index > 0 and len(self.layers) > 2 and index != len(self.layers) - 1)
+        move_up_action.setEnabled(can_move_up)
 
         move_down_action = menu.addAction("Move Down")
         move_down_action.triggered.connect(self.move_layer_down)
-        move_down_action.setEnabled(index > 1)
+        move_down_action.setEnabled(can_move_down)
 
         menu.addSeparator()
 
@@ -1497,119 +1333,6 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
 
 
     # ========================================================
-    # Order
-    # ========================================================
-
-    def move_layer_down(self):
-        index = self.selected_index()
-
-        if index is None:
-            return
-
-        if index <= 1:
-            return
-
-        self.layers[index - 1], self.layers[index] = (
-            self.layers[index],
-            self.layers[index - 1],
-        )
-
-        self.select_layer(index - 1)
-        self.rebuild_scene()
-
-
-    def move_layer_up(self):
-        index = self.selected_index()
-
-        if index is None:
-            return
-
-        if index >= len(self.layers) - 1:
-            return
-
-        if index == 0:
-            return
-
-        self.layers[index + 1], self.layers[index] = (
-            self.layers[index],
-            self.layers[index + 1],
-        )
-
-        self.select_layer(index + 1)
-        self.rebuild_scene()
-
-
-    def move_group_down(self):
-        index = self.selected_group_index()
-
-        if index is None:
-            return
-
-        if index <= 0:
-            return
-
-        self.groups[index - 1], self.groups[index] = (
-            self.groups[index],
-            self.groups[index - 1],
-        )
-
-        # self.select_group(index - 1)
-        self.rebuild_scene()
-
-
-    def move_group_up(self):
-        index = self.selected_group_index()
-
-        if index is None:
-            return
-
-        if index >= len(self.groups) - 1:
-            return
-
-        self.groups[index + 1], self.groups[index] = (
-            self.groups[index],
-            self.groups[index + 1],
-        )
-
-        # self.select_group(index + 1)
-        self.rebuild_scene()
-
-
-    # ========================================================
-    # Visibility
-    # ========================================================
-
-    def toggle_layer_visibility(self, index=None, layer=None):
-
-        if layer:
-            index = self.layers.index(layer)
-
-        if not 0 <= index < len(self.layers):
-            return
-
-        layer = self.layers[index]
-        layer.visible = not layer.visible
-
-        if layer.item:
-
-            if self.solo_mode_enabled:
-                layer.item.setVisible(layer is self.selected_layer())
-            else:
-                layer.item.setVisible(layer.visible)
-
-        if layer.list_item:
-            try:
-                row_widget = self.layer_list.itemWidget(layer.list_item)
-
-                if row_widget:
-                    row_widget.update_appearance()
-            except:
-                pass
-
-        self.update_project_stats()
-        self.layer_list.viewport().update()
-
-    # ========================================================
     # Open image
     # ========================================================
 
@@ -1622,6 +1345,7 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
 
         if path:
             self.add_image(path)
+
 
     # ========================================================
     # Load image
@@ -1647,6 +1371,7 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
                 alpha = alpha.resize(canvas_size, Image.Resampling.LANCZOS )
 
         return rgb, alpha
+
 
     # ========================================================
     # Add image
@@ -1679,7 +1404,8 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
             self.layers.append(layer)
 
             self.rebuild_scene()
-            self.select_layer(index)
+            self.select_layer(layer)
+
             self.update_project_stats()
 
             self.push_undo({
@@ -1702,129 +1428,6 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         except Exception as e:
             QMessageBox.critical(self, "Error adding image", str(e))
 
-    # ========================================================
-    # Replace layer
-    # ========================================================
-
-    def replace_layer(self, index):
-        if not (0 <= index < len(self.layers)):
-            return
-
-        layer = self.layers[index]
-
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Pick a new image",
-            "",
-            "Images (*.png *.jpg *.jpeg *.webp *.bmp *.tif *.tiff)",
-        )
-
-        if not path:
-            return
-
-        try:
-
-            old_image = layer.image
-            new_image = Image.open(path).convert("RGB")
-
-            layer.image = new_image
-
-            # Сбрасываем только кеш изображения.
-            layer.image_cache = None
-            layer.image_dirty = True
-
-            # Перестраиваем отображение.
-            self.rebuild_scene()
-
-            self.update_layer_preview(layer)
-            self.update_project_stats()
-            self.update_window_title()
-            self.update_history_buttons()
-
-            self.select_layer(index)
-
-            self.push_undo({
-                "type": "replace_image",
-                "index": index,
-                "old_image": old_image,
-                "new_image": new_image,
-            })
-
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Replace Image",
-                f"Unable to replace image:\n{e}"
-            )
-
-    def replace_layer_from_clipboard(self, index):
-        if not (0 <= index < len(self.layers)):
-            return
-
-        layer = self.layers[index]
-        clipboard = QApplication.clipboard()
-
-        if not clipboard.mimeData().hasImage():
-            QMessageBox.information(
-                self,
-                "Replace Image Clipboard",
-                "Clipboard does not contain an image.",
-            )
-            return
-
-        qimage = clipboard.image()
-
-        if qimage.isNull():
-            return
-
-        try:
-            qimage = qimage.convertToFormat(QImage.Format.Format_RGBA8888)
-            width = qimage.width()
-            height = qimage.height()
-
-            ptr = qimage.bits()
-            ptr.setsize(width * height * 4)
-
-            arr = np.frombuffer(ptr, dtype=np.uint8).reshape((height, width, 4))
-
-            pil_image = Image.fromarray(arr, "RGBA")
-            new_image = pil_image.convert("RGB")
-
-            old_image = layer.image
-
-            layer.image = new_image
-
-            layer.image_cache = None
-            layer.image_dirty = True
-
-            self.rebuild_scene()
-
-            self.update_layer_preview(layer)
-            self.update_project_stats()
-
-            self.push_undo({
-                "type": "replace_image",
-                "index": index,
-                "old_image": old_image,
-                "new_image": new_image,
-            })
-
-            self.update_window_title()
-            self.update_history_buttons()
-
-            self.select_layer(index)
-
-            self.status.setText(
-                f"Image replaced from clipboard: "
-                f"{width} × {height}"
-            )
-
-        except Exception as e:
-            QMessageBox.critical(
-                self,
-                "Replace Image Clipboard",
-                f"Unable to replace image:\n{e}"
-            )
 
     # ========================================================
     # Preview scale
@@ -1874,8 +1477,8 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
     def create_mask_preview(self, layer):
         s = self.preview_scale
 
-        w = max(1, round(layer.image.width * s))
-        h = max(1, round(layer.image.height * s))
+        w = max(1, round(layer.width * s))
+        h = max(1, round(layer.height * s))
 
         alpha = layer.alpha.resize((w, h), Image.Resampling.LANCZOS)
         alpha_array = np.asarray(alpha, dtype=np.uint8)
@@ -1899,14 +1502,15 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
 
             return layer.preview_normal_qimage
 
+
     def create_preview(self, layer):
         s = self.preview_scale
 
-        w = max(1, round(layer.image.width * s))
-        h = max(1, round(layer.image.height * s))
+        w = max(1, round(layer.width * s))
+        h = max(1, round(layer.height * s))
 
-        rgb = layer.image.resize((w, h), Image.Resampling.LANCZOS)
-        alpha = layer.alpha.resize((w, h), Image.Resampling.LANCZOS)
+        rgb = layer.image.resize((w, h), Image.Resampling.BICUBIC)
+        alpha = layer.alpha.resize((w, h), Image.Resampling.BICUBIC)
 
         # Глобальная прозрачность слоя.
         if layer.opacity != 100:
@@ -1954,6 +1558,7 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
 
         self.view.viewport().update()
 
+
     # ========================================================
     # Checkerboard background
     # ========================================================
@@ -2000,13 +1605,20 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         # ----------------------------------------------------
 
         if self.canvas_width and self.canvas_height:
-            checker = self.create_checkerboard(
-                max(1, round(self.canvas_width * self.preview_scale)),
-                max(1, round(self.canvas_height * self.preview_scale)),
-                cell_size=max(1, round(16 * self.preview_scale)),
-            )
 
-            checker_item = QGraphicsPixmapItem(QPixmap.fromImage(checker))
+            if self.canvas_width != self._checker_box_width and \
+               self.canvas_height != self._checker_box_height:
+
+                self._checker_box_width = self.canvas_width
+                self._checker_box_height = self.canvas_height
+
+                self._checker = QPixmap.fromImage(self.create_checkerboard(
+                    max(1, round(self.canvas_width * self.preview_scale)),
+                    max(1, round(self.canvas_height * self.preview_scale)),
+                    cell_size=max(1, round(16 * self.preview_scale)),
+                ))
+
+            checker_item = QGraphicsPixmapItem(self._checker)
             checker_item.setZValue(-1000)
 
             scene.addItem(checker_item)
@@ -2015,23 +1627,41 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         # Layers
         # ----------------------------------------------------
 
-        for layer in self.layers:
+        for z, layer in enumerate(self.layers):
+
             preview = self.create_preview(layer)
             layer.preview_qimage = pil_to_qimage(preview)
 
             item = LayerPreviewItem(layer.preview_qimage)
-            item.setPos(layer.x * self.preview_scale, layer.y * self.preview_scale)
+
+            item.setPos(
+                layer.x * self.preview_scale,
+                layer.y * self.preview_scale,
+            )
+
+            item.setZValue(z)
 
             if self.solo_mode_enabled:
-                item.setVisible(layer is self.selected_layer())
+                visible = layer is self.selected_layer()
             else:
-                item.setVisible(self.is_layer_visible(layer))
+                visible = self.is_layer_visible(layer)
+
+            item.setVisible(visible)
 
             layer.item = item
 
-            self.view.scene().addItem(item)
+            scene.addItem(item)
 
+        self.update_scene_layer_order()
         self.update_scene_rect()
+
+        self.view.viewport().update()
+
+
+    def update_scene_layer_order(self):
+
+        for z, layer in enumerate(self.sorted_layers):
+            layer.item.setZValue(z)
 
         self.view.viewport().update()
 
@@ -2069,6 +1699,7 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         self.update_window_title()
         self.update_history_buttons()
         self.update_project_stats()
+
 
     def create_group_separator(self, group):
         item = QListWidgetItem()
@@ -2113,94 +1744,6 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         margin = max(self.view.viewport().width(), self.view.viewport().height())
 
         self.view.scene().setSceneRect(-margin, -margin, scene_w + margin * 2, scene_h + margin * 2)
-
-    # ========================================================
-    # Layers
-    # ========================================================
-
-    def selected_index(self):
-        row = self.layer_list.currentRow()
-
-        if row < 0:
-            return -1
-
-        item = self.layer_list.item(row)
-
-        if not item:
-            return -1
-
-        layer = item.data(Qt.ItemDataRole.UserRole)
-
-        if layer not in self.layers:
-            return -1
-
-        return self.layers.index(layer)
-
-    def selected_layer(self):
-        row = self.layer_list.currentRow()
-
-        if row < 0:
-            return None
-
-        item = self.layer_list.item(row)
-
-        if not item:
-            return None
-
-        layer = item.data(Qt.ItemDataRole.UserRole)
-
-        if layer not in self.layers:
-            return None
-
-        return layer
-
-    def select_layer(self, index):
-        if not 0 <= index < len(self.layers):
-            return
-
-        layer = self.layers[index]
-
-        if layer.list_item:
-            row = self.layer_list.row(layer.list_item)
-            self.layer_list.setCurrentRow(row)
-
-
-    def layer_selected(self, row):
-        self.update_solo_visibility()
-
-        self.view.viewport().update()
-        self.update_project_stats()
-
-
-    # ========================================================
-    # Delete layer
-    # ========================================================
-
-    def delete_layer(self, index=None):
-
-        if index is None:
-            index = self.selected_index()
-
-        if index <= 0:
-            QMessageBox.information(self, "Удаление", "Фоновый слой удалить нельзя.")
-            return
-
-        layer = self.layers.pop(index)
-
-        self.push_undo({
-            "type": "delete",
-            "index": index,
-            "layer": layer,
-        })
-
-        self.rebuild_scene()
-        self.update_project_stats()
-
-        if self.layers:
-            self.select_layer(min(index, len(self.layers) - 1))
-
-        self.update_window_title()
-        self.update_history_buttons()
 
 
     # ========================================================
@@ -2341,16 +1884,13 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         # ----------------------------------------------------
 
         self.rebuild_scene()
-
         self.select_layer(0)
 
         self.update_project_stats()
         self.update_history_buttons()
         self.update_window_title()
 
-        self.status.setText(
-            f"Merged '{layer.name}' with background"
-        )
+        self.status.setText(f"Merged '{layer.name}' with background")
 
 
     def apply_merge_with_background(self, action, undo):
@@ -2467,6 +2007,7 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         self.update_window_title()
         self.update_history_buttons()
 
+
     def apply_brush_patches(self, action, undo):
         index = action["index"]
 
@@ -2485,6 +2026,7 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
 
         self.update_layer_preview(layer)
 
+
     def apply_fill_alpha(self, action, undo):
         index = action["index"]
 
@@ -2497,14 +2039,12 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
 
         alpha = action["before"] if undo else action["after"]
 
-        layer.alpha.paste(
-            alpha,
-            (x0, y0),
-        )
+        layer.alpha.paste(alpha, (x0, y0))
 
         layer.recalculate_content_bbox()
 
         self.update_layer_preview(layer)
+
 
     # ========================================================
     # History buttons

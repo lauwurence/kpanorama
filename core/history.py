@@ -51,13 +51,26 @@ class History():
 
             self.rebuild_scene()
 
-        elif typ == "delete":
+        elif typ == "delete_layer":
             index = action["index"]
             layer = action["layer"]
 
             self.layers.insert(min(index, len(self.layers)), layer)
             self.rebuild_scene()
-            self.select_layer(index)
+            self.select_layer(layer)
+
+        elif typ == "delete_group":
+            index = action["index"]
+            group = action["group"]
+            layers = action["layers"]
+
+            self.groups.insert(min(index, len(self.groups)), group)
+
+            for index, layer in layers:
+                self.layers.insert(min(index, len(self.layers)), layer)
+
+            self.rebuild_scene()
+            self.select_group(group)
 
         elif typ == "smart_mask":
             self.apply_smart_mask_history(action, True)
@@ -74,9 +87,6 @@ class History():
 
         elif typ == "merge_with_background":
             self.apply_merge_with_background(action, True)
-
-        elif typ == "reorder":
-            self.restore_layer_order(action["old_ids"])
 
         elif typ == "opacity":
             index = action["index"]
@@ -128,15 +138,35 @@ class History():
 
             self.layers.insert(min(index, len(self.layers)), layer)
             self.rebuild_scene()
-            self.select_layer(index)
+            self.select_layer(layer)
 
-        elif typ == "delete":
+        elif typ == "delete_layer":
             index = action["index"]
 
             if 0 <= index < len(self.layers):
                 self.layers.pop(index)
 
             self.rebuild_scene()
+
+        elif typ == "delete_group":
+            index = action["index"]
+            group = action["group"]
+            layers = action["layers"]
+
+            if group in self.groups:
+                index = self.groups.index(group)
+
+            self.groups.pop(index)
+
+            for index, layer in layers:
+
+                if layer in self.layers:
+                    index = self.layers.index(layer)
+
+                self.layers.pop(index)
+
+            self.rebuild_scene()
+            self.select_group(group)
 
         elif typ == "smart_mask":
             self.apply_smart_mask_history(action, False)
@@ -153,9 +183,6 @@ class History():
 
         elif typ == "merge_with_background":
             self.apply_merge_with_background(action, False)
-
-        elif typ == "reorder":
-            self.restore_layer_order(action["new_ids"])
 
         elif typ == "opacity":
             index = action["index"]

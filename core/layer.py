@@ -11,23 +11,50 @@ from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import QPainter
 from PyQt6.QtWidgets import QGraphicsItem
 
-class LayerGroup:
+
+class LayerGroup():
 
     def __init__(self, name="Group", group_id=None):
         self.id = group_id or str(uuid.uuid4())
+        self._name = ""
         self.name = name
         self.visible = True
         self.expanded = True
-        self.layers = []
         self.tag = None
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, name):
+        self._name = name.replace(" ", "_").strip()
+
 
 class Layer():
 
-    def __init__(self, name, image, x=0, y=0, alpha=None, visible=True, layer_id=None, original_bbox=None, opacity=100, tag=None):
+    def __init__(self,
+            name,
+            image=None,
+            x=0,
+            y=0,
+            alpha=None,
+            visible=True,
+            layer_id=None,
+            original_bbox=None,
+            opacity=100,
+            tag=None,
+            mode='image',
+            fill_color=None,
+            width=None,
+            height=None):
 
         self.id = layer_id or str(uuid.uuid4())
         self.group_id = None
 
+        self._name = ""
+
+        self.mode = mode
         self.name = name
         self.x = x
         self.y = y
@@ -35,19 +62,38 @@ class Layer():
         self.tag = tag if tag in [None, "HQ", "MQ", "LQ", "SQ"] else None
 
         # Собственный цвет слоя
-        self.image = image.convert("RGB")
+        if mode == 'image':
+            self._image = image.convert("RGB")
+            self.fill_color = None
+            self.width = self.image.width
+            self.height = self.image.height
 
-        # Собственная прозрачностость
-        if alpha:
-            self.content_alpha = alpha.convert("L").copy()
-        else:
-            self.content_alpha = Image.new("L", self.image.size, 255)
+            # Собственная прозрачностость
+            if alpha:
+                self._content_alpha = alpha.convert("L").copy()
+            else:
+                self._content_alpha = Image.new("L", self.size, 255)
+
+            # Изменяемая прозрачность
+            self.alpha = self.content_alpha.copy()
+
+        # Заливка цветом
+        elif mode == 'solid':
+            self._image = None
+            self.fill_color = tuple(fill_color) if fill_color else (255, 255, 255)
+
+            if width is None or height is None:
+                raise Exception(f'Solid mode requires `width` and `height` to be defined.')
+
+            self.width = width
+            self.height = height
+            self._content_alpha = None
+
+            self.alpha = alpha.copy() if alpha else self.content_alpha.copy()
 
         # Та же прозрачность, но в numpy
         self.content_alpha_array = np.asarray(self.content_alpha, dtype=np.uint8)
 
-        # Изменяемая прозрачность
-        self.alpha = self.content_alpha.copy()
 
         self.visible = visible
         self.opacity = max(0, min(100, int(opacity)))
@@ -88,26 +134,113 @@ class Layer():
 
         self.recalculate_content_bbox()
 
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, name):
+        self._name = name.replace(" ", "_").strip()
+
+    @property
+    def image(self):
+        if self.is_image:
+            return self._image
+        elif not self._image:
+            self._image = Image.new("RGB", self.size, self.fill_color)
+        return self._image
+
+    @image.setter
+    def image(self, image):
+        self._image = image
+        # if self.is_image:
+        # else:
+        #     self._image = None
+
+    @property
+    def content_alpha(self):
+        if self.is_image:
+            return self._content_alpha
+        elif not self._content_alpha:
+            self._content_alpha = Image.new("L", self.size, 255)
+        return self._content_alpha
+
+    @content_alpha.setter
+    def content_alpha(self, alpha):
+        self._content_alpha = alpha
+        # if self.is_image:
+        # else:
+        #     self._content_alpha = None
+
+    @property
+    def size(self):
+        return (self.width, self.height)
+
+    @property
+    def is_solid(self):
+        return self.mode == 'solid'
+
+    @property
+    def is_image(self):
+        return self.mode == 'image'
 
     def copy(self):
-        layer = Layer(
-            name=f"{self.name} copy",
-            image=self.image.copy(),
-            x=self.x,
-            y=self.y,
-            alpha=self.alpha.copy(),
-            visible=self.visible,
-            original_bbox=self._original_visible_bbox,
-            opacity=self.opacity,
-            tag=self.tag,
-        )
+        """
+        Return layer copy.
+        """
+
+        if self.is_solid:
+            layer = Layer(
+                name=f"{self.name} copy",
+                image=None,
+                x=self.x,
+                y=self.y,
+                alpha=self.alpha.copy(),
+                visible=self.visible,
+                original_bbox=self._original_visible_bbox,
+                opacity=self.opacity,
+                tag=self.tag,
+
+                mode="solid",
+                fill_color=self.fill_color,
+                width=self.width,
+                height=self.height,
+            )
+
+        else:
+            layer = Layer(
+                name=f"{self.name} copy",
+                image=self.image.copy(),
+                x=self.x,
+                y=self.y,
+                alpha=self.alpha.copy(),
+                visible=self.visible,
+                original_bbox=self._original_visible_bbox,
+                opacity=self.opacity,
+                tag=self.tag,
+
+                mode="image",
+            )
 
         layer.group_id = self.group_id
 
         return layer
 
+
     def rgba(self):
-        img = self.image.copy()
+        """
+        Возвращает полноценное RGBA изображение.
+
+        ВНИМАНИЕ:
+        для solid-слоя этот метод создаёт большой массив.
+        Поэтому использовать его только там, где действительно
+        нужен полноценный PIL Image.
+        """
+
+        if self.is_solid:
+            img = Image.new("RGB", (self.width, self.height), self.fill_color)
+        else:
+            img = self.image.copy()
 
         alpha = self.alpha.copy()
 
@@ -115,10 +248,14 @@ class Layer():
             alpha = alpha.point(lambda a: int(a * self.opacity / 100))
 
         img.putalpha(alpha)
+
         return img
+
 
     def invert_alpha(self):
         self.alpha = ImageOps.invert(self.alpha)
+        self.mask_dirty = True
+        self.recalculate_content_bbox()
 
 
     def original_visible_bbox(self):
@@ -164,11 +301,21 @@ class Layer():
 
     def get_image_data(self):
 
+        # Solid-слой не имеет RGB PNG.
+        #
+        # Не создаём здесь огромный Image.
+        # При сохранении проекта позже лучше сохранять:
+        #
+        # mode = "solid"
+        # fill_color = (...)
+        # width = ...
+        # height = ...
+        #
+
         if self.image_cache is None or self.image_dirty:
             buf = io.BytesIO()
 
             self.image.save(buf, "PNG", compress_level=1, optimize=False)
-
             self.image_cache = buf.getvalue()
             self.image_dirty = False
 
@@ -179,7 +326,7 @@ class Layer():
         bbox = self.original_visible_bbox()
 
         if bbox is None:
-            self.alpha = Image.new("L", self.image.size, 0)
+            self.alpha = Image.new("L", self.size, 0)
             return
 
         ox0, oy0, ox1, oy1 = bbox
@@ -206,10 +353,14 @@ class LayerPreviewItem(QGraphicsItem):
 
 
     def boundingRect(self):
-        return QRectF(0, 0, self.image.width(), self.image.height())
+        return QRectF(0, 0, self.image.width() if self.image else 1, self.image.height() if self.image else 1)
 
 
     def paint(self, painter, option, widget=None):
+
+        if not self.image:
+            return
+
         exposed = option.exposedRect
 
         if exposed.isEmpty():
@@ -224,6 +375,7 @@ class LayerPreviewItem(QGraphicsItem):
 
 
     def set_image(self, image):
+
         if image is self.image:
             self.update()
             return
@@ -235,6 +387,9 @@ class LayerPreviewItem(QGraphicsItem):
 
 
     def update_region(self, patch, x, y):
+
+        if not self.image:
+            return
 
         if patch.isNull():
             return
