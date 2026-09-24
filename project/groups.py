@@ -4,6 +4,9 @@ import numpy as np
 from PIL import Image
 
 from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import (
+    QColor,
+)
 from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -14,7 +17,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QWidget,
     QLineEdit,
-    QLabel
+    QLabel,
 )
 
 from core.layer import LayerGroup
@@ -61,16 +64,18 @@ class MainWindowGroup():
     def create_group(self):
         group = LayerGroup()
         self.groups.append(group)
-        self.rebuild_scene()
+        self.rebuild_layers_ui()
         self.status.setText(f"Group created: {group.name}")
 
     def rename_group(self, group):
-        name, ok = QInputDialog.getText(
-            self,
-            "Rename Group",
-            "Group name:",
-            text=group.name,
-        )
+        dialog = QInputDialog(self)
+        dialog.setWindowTitle("Rename Group")
+        dialog.setLabelText("Rename group to:")
+        dialog.setTextValue(group.name)
+        dialog.resize(300, dialog.sizeHint().height())
+
+        ok = dialog.exec()
+        name = dialog.textValue()
 
         if not ok:
             return
@@ -80,9 +85,11 @@ class MainWindowGroup():
         if not name:
             return
 
+        name = name.replace(" ", "_")
+
         group.name = name
 
-        self.rebuild_scene()
+        self.rebuild_layers_ui()
 
         self.update_window_title()
         self.update_project_stats()
@@ -268,6 +275,7 @@ class MainWindowGroup():
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole + 1, group)
         item.setSizeHint(QSize(100, 34))
+        item.setBackground(QColor("#333333"))
         self.layer_list.addItem(item)
 
         widget = QWidget()
@@ -298,9 +306,8 @@ class MainWindowGroup():
         expand_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         def update_expand_button():
-            expand_button.setText(
-                "▼" if group.expanded else "▶"
-            )
+            expand_button.setText("▾" if group.expanded else "▸")
+            expand_button.setStyleSheet("font-size: 20px;")
 
         update_expand_button()
 
@@ -329,6 +336,7 @@ class MainWindowGroup():
         # -------------------------
 
         name_edit = QLabel(group.name)
+        name_edit.setStyleSheet("font-weight: bold;")
         name_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         name_edit.setContextMenuPolicy(
@@ -401,7 +409,7 @@ class MainWindowGroup():
 
         def toggle_expanded():
             group.expanded = not group.expanded
-            self.rebuild_scene()
+            self.rebuild_layers_ui()
 
         expand_button.clicked.connect(toggle_expanded)
 
@@ -411,8 +419,11 @@ class MainWindowGroup():
 
         def toggle_visibility():
             group.visible = not group.visible
+
+            for layer in group.layers:
+                self.toggle_layer_visibility(layer=layer)
+
             update_eye_button()
-            self.rebuild_scene()
 
         eye_button.clicked.connect(toggle_visibility)
 

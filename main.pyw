@@ -102,7 +102,11 @@ class LayerRowWidget(QWidget):
         layout.setSpacing(0)
 
         if layer.group_id is not None:
-            layout.addSpacing(24)
+            corner_label = QLabel("└")
+            corner_label.setStyleSheet("color: #888888; font-weight: bold;")
+            layout.addSpacing(8)
+            layout.addWidget(corner_label)
+            layout.addSpacing(7)
 
         self.eye_button = QPushButton()
         self.eye_button.setFixedSize(24, 24)
@@ -127,6 +131,10 @@ class LayerRowWidget(QWidget):
         )
         self.name_edit.setVisible(False)
         self.name_edit.returnPressed.connect(self.finish_rename)
+
+        self.opacity = QLabel("")
+        self.opacity.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
 
         # Tag Button
         self.tag_button = QPushButton()
@@ -160,6 +168,7 @@ class LayerRowWidget(QWidget):
         layout.addSpacing(2)
         layout.addWidget(self.name_label, 1)
         layout.addWidget(self.name_edit, 1)
+        layout.addWidget(self.opacity)
         layout.addWidget(self.tag_button)
         layout.addWidget(self.copy_button)
         layout.addWidget(self.save_button)
@@ -242,6 +251,15 @@ class LayerRowWidget(QWidget):
             self.eye_button.setIcon(icon("eye_hide.svg"))
             self.name_label.setStyleSheet("color: #777;")
 
+        self.opacity.setText(f"{self.layer.opacity}%" if self.layer.opacity != 100 else "")
+
+        self.opacity.setStyleSheet("""
+            QLabel {
+                color: #888;
+                font-size: 11px;
+            }
+        """)
+
         self.save_button.setStyleSheet(
             """
             QPushButton {
@@ -296,6 +314,8 @@ class LayerRowWidget(QWidget):
 
         if not name:
             name = self.layer.name
+
+        name = name.replace(" ", "_")
 
         self.layer.name = name
         self.name_label.setText(name)
@@ -738,7 +758,7 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
         layer.invert_alpha()
 
         # Добавляем над текущим выбранным слоем.
-        index = self.selected_index() + 1
+        index = len(self.layers)
 
         self.layers.insert(index, layer)
 
@@ -1362,6 +1382,12 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
 
         self.update_layer_preview(layer)
 
+        if layer.list_item:
+            row_widget = self.layer_list.itemWidget(layer.list_item)
+
+            if row_widget:
+                row_widget.update_appearance()
+
         self.update_project_stats()
         self.update_history_buttons()
         self.update_window_title()
@@ -1699,10 +1725,10 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
 
         menu = QMenu(self)
 
-        save_action = menu.addAction("Save as PNG")
-        save_action.triggered.connect(self.export_layer)
+        # save_action = menu.addAction("Save as PNG")
+        # save_action.triggered.connect(self.export_layer)
 
-        menu.addSeparator()
+        # menu.addSeparator()
 
         replace_action = menu.addAction("Replace From Path")
         replace_action.triggered.connect(lambda checked=False, i=index: self.replace_layer(i))
@@ -1722,7 +1748,7 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
 
         menu.addSeparator()
 
-        set_layer_opacity_action = menu.addAction(f"Set Opacity ({layer.opacity:.0f}%)")
+        set_layer_opacity_action = menu.addAction(f"Set Opacity")
         set_layer_opacity_action.triggered.connect(lambda checked=False, l=layer: self.set_layer_opacity_dialog(l))
 
         merge_with_background_action = menu.addAction("Merge With Background")
@@ -1807,12 +1833,15 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
     # Visibility
     # ========================================================
 
-    def toggle_layer_visibility(self, index):
+    def toggle_layer_visibility(self, index=None, layer=None):
+
+        if layer:
+            index = self.layers.index(layer)
+
         if not 0 <= index < len(self.layers):
             return
 
         layer = self.layers[index]
-        old_visible = layer.visible
         layer.visible = not layer.visible
 
         if layer.item:
@@ -1832,15 +1861,6 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
             if row_widget:
                 row_widget.update_appearance()
 
-        # self.push_undo({
-        #     "type": "visibility",
-        #     "index": index,
-        #     "old": old_visible,
-        #     "new": layer.visible,
-        # })
-
-        # self.update_history_buttons()
-        # self.update_window_title()
         self.update_project_stats()
         self.layer_list.viewport().update()
 
@@ -2231,7 +2251,105 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
     # Rebuild scene
     # ========================================================
 
+    # def rebuild_scene(self):
+    #     scene = self.view.scene()
+    #     scene.clear()
+
+    #     self.preview_scale = self.calculate_preview_scale()
+
+    #     # ----------------------------------------------------
+    #     # Checkerboard background
+    #     # ----------------------------------------------------
+
+    #     if self.canvas_width and self.canvas_height:
+    #         checker = self.create_checkerboard(
+    #             max(1, round(self.canvas_width * self.preview_scale)),
+    #             max(1, round(self.canvas_height * self.preview_scale)),
+    #             cell_size=max(1, round(16 * self.preview_scale)),
+    #         )
+
+    #         checker_item = QGraphicsPixmapItem(QPixmap.fromImage(checker))
+    #         checker_item.setZValue(-1000)
+
+    #         scene.addItem(checker_item)
+
+    #     # ----------------------------------------------------
+    #     # Layers
+    #     # ----------------------------------------------------
+
+    #     for layer in self.layers:
+    #         preview = self.create_preview(layer)
+    #         layer.preview_qimage = pil_to_qimage(preview)
+
+    #         item = LayerPreviewItem(layer.preview_qimage)
+    #         item.setPos(layer.x * self.preview_scale, layer.y * self.preview_scale)
+    #         if self.solo_mode_enabled:
+    #             item.setVisible(
+    #                 layer is self.selected_layer()
+    #             )
+    #         else:
+    #             item.setVisible(
+    #                 self.is_layer_visible(layer)
+    #             )
+    #         layer.item = item
+
+    #         self.view.scene().addItem(item)
+
+    #     self.update_scene_rect()
+
+    #     # ----------------------------------------------------
+    #     # Перестраиваем список слоёв
+    #     # ----------------------------------------------------
+
+    #     self.layer_list.blockSignals(True)
+    #     self.layer_list.clear()
+
+    #     # Сначала группы.
+    #     for group in reversed(self.groups):
+
+    #         self.create_group_list_item(group)
+
+    #         if not group.expanded:
+    #             continue
+
+    #         group_layers = [
+    #             layer
+    #             for layer in self.layers
+    #             if layer.group_id == group.id
+    #         ]
+
+    #         for layer in reversed(group_layers):
+    #             self.create_layer_list_item(layer)
+
+    #         # Сепаратор после группы
+    #         if group_layers:
+    #             self.create_group_separator(group)
+
+
+    #     # Затем слои, которые не входят ни в одну группу.
+    #     ungrouped_layers = [
+    #         layer
+    #         for layer in self.layers
+    #         if layer.group_id is None
+    #     ]
+
+    #     for layer in reversed(ungrouped_layers):
+    #         self.create_layer_list_item(layer)
+
+
+    #     self.layer_list.blockSignals(False)
+
+    #     self.view.viewport().update()
+    #     self.update_window_title()
+    #     self.update_history_buttons()
+    #     self.update_project_stats()
+
     def rebuild_scene(self):
+        self.rebuild_scene_view()
+        self.rebuild_layers_ui()
+
+
+    def rebuild_scene_view(self):
         scene = self.view.scene()
         scene.clear()
 
@@ -2277,6 +2395,10 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
 
         self.update_scene_rect()
 
+        self.view.viewport().update()
+
+
+    def rebuild_layers_ui(self):
         # ----------------------------------------------------
         # Перестраиваем список слоёв
         # ----------------------------------------------------
@@ -2303,7 +2425,7 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
 
             # Сепаратор после группы
             if group_layers:
-                self.create_group_separator()
+                self.create_group_separator(group)
 
 
         # Затем слои, которые не входят ни в одну группу.
@@ -2319,36 +2441,37 @@ class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskActi
 
         self.layer_list.blockSignals(False)
 
-        self.view.viewport().update()
         self.update_window_title()
         self.update_history_buttons()
         self.update_project_stats()
 
-    def create_group_separator(self):
+    def create_group_separator(self, group):
         item = QListWidgetItem()
         item.setFlags(Qt.ItemFlag.NoItemFlags)
-        item.setSizeHint(QSize(100, 15))
+        item.setSizeHint(QSize(100, 20))
 
-        widget = QWidget()
-
-        line = QFrame(widget)
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Plain)
-        line.setStyleSheet("""
-            QFrame {
-                color: #333333;
-                background: #333333;
+        button = QPushButton("  ".join(["•"] * 3))
+        button.setFlat(True)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setStyleSheet("""
+            QPushButton {
+                background: transparent;
                 border: none;
-                max-height: 2px;
+                padding: 0;
+                border-radius: 0px;
+                color: #fff;
+                font-size: 12px;
             }
         """)
 
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(6, 3, 6, 3)
-        layout.addWidget(line)
+        def on_clicked():
+            group.expanded = not group.expanded
+            self.rebuild_layers_ui()
+
+        button.clicked.connect(on_clicked)
 
         self.layer_list.addItem(item)
-        self.layer_list.setItemWidget(item, widget)
+        self.layer_list.setItemWidget(item, button)
 
         return item
 
