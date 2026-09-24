@@ -51,7 +51,7 @@ from core.edge_mask import EdgeMaskAction
 from core.dark_cut import DarkCutAction
 from core.mask_adjust import MaskAdjustAction
 
-APP_VERSION = (0, 1, 3)
+APP_VERSION = (0, 1, 4)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ICON_DIR = os.path.join(BASE_DIR, "icons")
@@ -110,7 +110,11 @@ class LayerRowWidget(QWidget):
 
         self.eye_button = QPushButton()
         self.eye_button.setFixedSize(24, 24)
-        self.eye_button.setIconSize(QSize(20, 20))
+
+        if layer.group_id is not None:
+            self.eye_button.setIconSize(QSize(15, 15))
+        else:
+            self.eye_button.setIconSize(QSize(20, 20))
         self.eye_button.setFlat(True)
         self.eye_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.eye_button.clicked.connect(lambda: self.window.toggle_layer_visibility(self.window.layers.index(self.layer)))
