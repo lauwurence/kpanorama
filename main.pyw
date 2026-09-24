@@ -37,11 +37,14 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QToolButton,
     QColorDialog,
+    QVBoxLayout,
+    QFrame,
 )
 
 from core.layer import Layer, LayerPreviewItem
 from core.history import History
 from project.project_io import ProjectIO
+from project.groups import MainWindowGroup
 from ui.canvas import CanvasView
 from core.smart_mask import SmartMaskAction
 from core.edge_mask import EdgeMaskAction
@@ -98,14 +101,15 @@ class LayerRowWidget(QWidget):
         layout.setContentsMargins(4, 2, 4, 2)
         layout.setSpacing(0)
 
+        if layer.group_id is not None:
+            layout.addSpacing(24)
+
         self.eye_button = QPushButton()
         self.eye_button.setFixedSize(24, 24)
         self.eye_button.setIconSize(QSize(20, 20))
         self.eye_button.setFlat(True)
         self.eye_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.eye_button.clicked.connect(
-            lambda: self.window.toggle_layer_visibility(self.window.layers.index(self.layer))
-        )
+        self.eye_button.clicked.connect(lambda: self.window.toggle_layer_visibility(self.window.layers.index(self.layer)))
 
         # Обычное отображение имени
         self.name_label = QLabel(layer.name)
@@ -231,7 +235,7 @@ class LayerRowWidget(QWidget):
         )
 
     def update_appearance(self):
-        if self.layer.visible:
+        if self.window.is_layer_visible(self.layer):
             self.eye_button.setIcon(icon("eye_show.svg"))
             self.name_label.setStyleSheet("color: white;")
         else:
@@ -354,7 +358,7 @@ class LayerListWidget(QListWidget):
 # Main Window
 # ============================================================
 
-class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskAction, DarkCutAction, MaskAdjustAction):
+class MainWindow(QMainWindow, History, ProjectIO, MainWindowGroup, SmartMaskAction, EdgeMaskAction, DarkCutAction, MaskAdjustAction):
 
     def __init__(self):
         super().__init__()
@@ -378,6 +382,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         self.brush_hardness = 50
 
         self.layers = []
+        self.groups = []
 
         self.canvas_width = 0
         self.canvas_height = 0
@@ -399,6 +404,9 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
 
         if geometry:
             self.restoreGeometry(geometry)
+
+    def icon(self, *args, **kwargs):
+        return icon(*args, **kwargs)
 
     def create_mask_color_lut(self):
         lut = np.zeros((256, 3), dtype=np.uint8)
@@ -460,6 +468,20 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         self.update_history_buttons()
         self.update_project_stats()
         self.view.viewport().update()
+
+    def is_layer_visible(self, layer):
+        if not layer.visible:
+            return False
+
+        if layer.group_id is None:
+            return True
+
+        for group in self.groups:
+            if group.id == layer.group_id:
+                return group.visible
+
+        return True
+
 
     # ========================================================
     # Fit layer to viewport
@@ -944,9 +966,56 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         self.layer_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.layer_list.customContextMenuRequested.connect(self.layer_context_menu)
 
+        # ----------------------------------------------------
+        # Layers toolbar
+        # ----------------------------------------------------
+
+        layer_button_style = """
+            QPushButton {
+                padding: 3px 10px;
+            }
+            QPushButton:hover {
+                background-color: #3a3a3a;
+            }
+        """
+
+
+        layers_toolbar = QHBoxLayout()
+        layers_toolbar.setContentsMargins(0, 0, 0, 0)
+
+        self.add_color_layer_button = QPushButton("+ Color")
+        self.add_group_button = QPushButton("+ Group")
+
+        self.add_color_layer_button.setStyleSheet(layer_button_style)
+        self.add_group_button.setStyleSheet(layer_button_style)
+
+        layers_toolbar.addWidget(self.add_color_layer_button)
+        layers_toolbar.addWidget(self.add_group_button)
+
+        self.add_color_layer_button.clicked.connect(self.add_solid_color_layer)
+        self.add_group_button.clicked.connect(self.create_group)
+
+        # ----------------------------------------------------
+        # Layers panel
+        # ----------------------------------------------------
+
+        layers_panel = QWidget()
+
+        layers_layout = QVBoxLayout(layers_panel)
+        layers_layout.setContentsMargins(0, 0, 0, 0)
+        layers_layout.setSpacing(2)
+
+        layers_layout.addLayout(layers_toolbar)
+        layers_layout.addWidget(self.layer_list)
+
+        # ----------------------------------------------------
+        # Main splitter
+        # ----------------------------------------------------
+
         splitter = QSplitter()
         splitter.addWidget(self.view)
-        splitter.addWidget(self.layer_list)
+        splitter.addWidget(layers_panel)
+
         splitter.setSizes([1150, 300])
 
         self.setCentralWidget(splitter)
@@ -1140,16 +1209,6 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         toolbar.addWidget(create_spacing(5))
 
         # ----------------------------------------------------
-        # Add Solid Color
-        # ----------------------------------------------------
-
-        self.add_color_layer_action = toolbar.addAction("+")
-        self.add_color_layer_action.setToolTip("Add a solid color layer")
-        self.add_color_layer_action.triggered.connect(self.add_solid_color_layer)
-        toolbar.widgetForAction(self.add_color_layer_action).setStyleSheet(button_style)
-
-
-        # ----------------------------------------------------
         # Статистика проекта
         # ----------------------------------------------------
 
@@ -1211,7 +1270,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         layer_count = len(self.layers)
 
         # Количество видимых слоёв
-        visible_count = sum(1 for layer in self.layers if layer.visible)
+        visible_count = sum(1 for layer in self.layers if self.is_layer_visible(layer))
 
         # Информация о выбранном слое
         layer = self.selected_layer()
@@ -1462,7 +1521,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
             else:
                 # Обычный режим — возвращаем реальные
                 # состояния eye каждой строки.
-                layer.item.setVisible(layer.visible)
+                layer.item.setVisible(self.is_layer_visible(layer))
 
         self.layer_list.viewport().update()
 
@@ -1672,6 +1731,15 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
 
         menu.addSeparator()
 
+        add_to_group_action = menu.addAction("Add To Group")
+        add_to_group_action.triggered.connect(self.add_selected_layer_to_group)
+
+        remove_from_group_action = menu.addAction("Remove From Group")
+        remove_from_group_action.triggered.connect(self.remove_selected_layer_from_group)
+        remove_from_group_action.setEnabled(layer.group_id is not None)
+
+        menu.addSeparator()
+
         move_up_action = menu.addAction("Move Up")
         move_up_action.triggered.connect(self.move_layer_up)
         move_up_action.setEnabled(index > 0 and len(self.layers) > 2 and index != len(self.layers) - 1)
@@ -1734,58 +1802,6 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         self.select_layer(index + 1)
         self.rebuild_scene()
 
-
-    # ========================================================
-    # Rename
-    # ========================================================
-
-    def rename_layer(self, item=None):
-        if item is None:
-            item = self.layer_list.currentItem()
-
-        if not item:
-            return
-
-        layer = item.data(Qt.ItemDataRole.UserRole)
-
-        if layer not in self.layers:
-            return
-
-        index = self.layers.index(layer)
-        old_name = layer.name
-
-        new_name, ok = QInputDialog.getText(
-            self,
-            "Rename Layer",
-            "Name:",
-            text=old_name,
-        )
-
-        if not ok:
-            return
-
-        new_name = new_name.strip()
-
-        if not new_name or new_name == old_name:
-            return
-
-        layer.name = new_name
-
-        if layer.list_item:
-            row_widget = self.layer_list.itemWidget(layer.list_item)
-
-            if row_widget:
-                row_widget.name_label.setText(new_name)
-
-        self.push_undo({
-            "type": "rename_layer",
-            "index": index,
-            "old_name": old_name,
-            "new_name": new_name,
-        })
-
-        self.update_history_buttons()
-        self.update_window_title()
 
     # ========================================================
     # Visibility
@@ -2253,7 +2269,7 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
                 )
             else:
                 item.setVisible(
-                    layer.visible
+                    self.is_layer_visible(layer)
                 )
             layer.item = item
 
@@ -2268,10 +2284,38 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         self.layer_list.blockSignals(True)
         self.layer_list.clear()
 
-        # Сверху вниз:
-        # последний слой -> первый слой
-        for index in range(len(self.layers) - 1, -1, -1):
-            self.create_layer_list_item(self.layers[index])
+        # Сначала группы.
+        for group in reversed(self.groups):
+
+            self.create_group_list_item(group)
+
+            if not group.expanded:
+                continue
+
+            group_layers = [
+                layer
+                for layer in self.layers
+                if layer.group_id == group.id
+            ]
+
+            for layer in reversed(group_layers):
+                self.create_layer_list_item(layer)
+
+            # Сепаратор после группы
+            if group_layers:
+                self.create_group_separator()
+
+
+        # Затем слои, которые не входят ни в одну группу.
+        ungrouped_layers = [
+            layer
+            for layer in self.layers
+            if layer.group_id is None
+        ]
+
+        for layer in reversed(ungrouped_layers):
+            self.create_layer_list_item(layer)
+
 
         self.layer_list.blockSignals(False)
 
@@ -2279,6 +2323,34 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         self.update_window_title()
         self.update_history_buttons()
         self.update_project_stats()
+
+    def create_group_separator(self):
+        item = QListWidgetItem()
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        item.setSizeHint(QSize(100, 15))
+
+        widget = QWidget()
+
+        line = QFrame(widget)
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Plain)
+        line.setStyleSheet("""
+            QFrame {
+                color: #333333;
+                background: #333333;
+                border: none;
+                max-height: 2px;
+            }
+        """)
+
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(6, 3, 6, 3)
+        layout.addWidget(line)
+
+        self.layer_list.addItem(item)
+        self.layer_list.setItemWidget(item, widget)
+
+        return item
 
     # ========================================================
     # Scene rect
@@ -2317,12 +2389,22 @@ class MainWindow(QMainWindow, History, ProjectIO, SmartMaskAction, EdgeMaskActio
         return self.layers.index(layer)
 
     def selected_layer(self):
-        index = self.selected_index()
+        row = self.layer_list.currentRow()
 
-        if 0 <= index < len(self.layers):
-            return self.layers[index]
+        if row < 0:
+            return None
 
-        return None
+        item = self.layer_list.item(row)
+
+        if not item:
+            return None
+
+        layer = item.data(Qt.ItemDataRole.UserRole)
+
+        if layer not in self.layers:
+            return None
+
+        return layer
 
     def select_layer(self, index):
         if not 0 <= index < len(self.layers):

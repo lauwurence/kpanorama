@@ -11,7 +11,7 @@ from PIL import Image
 
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
-from core.layer import Layer
+from core.layer import Layer, LayerGroup
 
 
 class ProjectIO():
@@ -103,8 +103,17 @@ class ProjectIO():
                         self.canvas_width,
                         self.canvas_height,
                     ],
+                    "groups": [],
                     "layers": [],
                 }
+
+                for group in self.groups:
+                    project["groups"].append({
+                        "id": group.id,
+                        "name": group.name,
+                        "visible": group.visible,
+                        "expanded": group.expanded,
+                    })
 
                 for i, layer in enumerate(self.layers):
                     image_name = f"layer_{i}.png"
@@ -186,6 +195,7 @@ class ProjectIO():
                         "x": layer.x,
                         "y": layer.y,
                         "visible": layer.visible,
+                        "group_id": layer.group_id,
                     })
 
                 z.writestr(
@@ -248,11 +258,23 @@ class ProjectIO():
                     )
 
                 self.layers.clear()
+                self.groups.clear()
 
                 (
                     self.canvas_width,
                     self.canvas_height,
                 ) = project["canvas"]
+
+                for group_data in project.get("groups", []):
+                    group = LayerGroup(
+                        name=group_data.get("name", "Group"),
+                        group_id=group_data.get("id"),
+                    )
+
+                    group.visible = group_data.get("visible", True)
+                    group.expanded = group_data.get("expanded", True)
+
+                    self.groups.append(group)
 
                 for i, data in enumerate(
                     project["layers"]
@@ -338,12 +360,15 @@ class ProjectIO():
                         data["y"],
                         alpha,
                         data["visible"],
+                        layer_id=data.get("id"),
                         original_bbox=data[
                             "original_bbox"
                         ],
                         opacity=data.get("opacity", 100),
                         tag=data.get("tag", None)
                     )
+
+                    layer.group_id = data.get("group_id")
 
                     # В проекте content_alpha хранится
                     # отдельно от текущей alpha.
@@ -376,27 +401,33 @@ class ProjectIO():
 
                     self.layers.append(layer)
 
+            for group in self.groups:
+                group.layers.clear()
+
+            for layer in self.layers:
+                if layer.group_id is None:
+                    continue
+
+                for group in self.groups:
+                    if group.id == layer.group_id:
+                        group.layers.append(layer)
+                        break
+
             self.undo_stack.clear()
             self.redo_stack.clear()
 
             self.rebuild_scene()
 
-            self.project_path = os.path.abspath(
-                path
-            )
+            self.project_path = os.path.abspath(path)
 
             self.update_project_stats()
 
             if self.layers:
-                self.select_layer(
-                    len(self.layers) - 1
-                )
+                self.select_layer(len(self.layers) - 1)
 
             self.mark_project_saved()
 
-            self.status.setText(
-                "Project loaded"
-            )
+            self.status.setText("Project loaded")
 
             QTimer.singleShot(0, self.fit_canvas_to_view)
 

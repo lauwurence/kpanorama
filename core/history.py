@@ -72,15 +72,6 @@ class History():
             self.rebuild_scene()
             self.select_layer(index)
 
-        elif typ == "rename_layer":
-            index = action["index"]
-
-            if 0 <= index < len(self.layers):
-                self.layers[index].name = action["old_name"]
-
-            self.rebuild_scene()
-            self.select_layer(index)
-
         elif typ == "merge_with_background":
             self.apply_merge_with_background(action, True)
 
@@ -158,15 +149,6 @@ class History():
         elif typ == "replace_image":
             index = action["index"]
             self.layers[index].image = action["new_image"]
-
-            self.rebuild_scene()
-            self.select_layer(index)
-
-        elif typ == "rename_layer":
-            index = action["index"]
-
-            if 0 <= index < len(self.layers):
-                self.layers[index].name = action["new_name"]
 
             self.rebuild_scene()
             self.select_layer(index)

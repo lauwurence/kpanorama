@@ -11,12 +11,23 @@ from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import QPainter
 from PyQt6.QtWidgets import QGraphicsItem
 
+class LayerGroup:
+
+    def __init__(self, name="Group", group_id=None):
+        self.id = group_id or str(uuid.uuid4())
+        self.name = name
+        self.visible = True
+        self.expanded = True
+        self.layers = []
+        self.tag = None
 
 class Layer():
 
     def __init__(self, name, image, x=0, y=0, alpha=None, visible=True, layer_id=None, original_bbox=None, opacity=100, tag=None):
 
         self.id = layer_id or str(uuid.uuid4())
+        self.group_id = None
+
         self.name = name
         self.image = image.convert("RGB")
         self.x = x
@@ -78,7 +89,7 @@ class Layer():
         self.recalculate_content_bbox()
 
     def copy(self):
-        return Layer(
+        layer = Layer(
             name=f"{self.name} copy",
             image=self.image.copy(),
             x=self.x,
@@ -89,6 +100,10 @@ class Layer():
             opacity=self.opacity,
             tag=self.tag,
         )
+
+        layer.group_id = self.group_id
+
+        return
 
     def rgba(self):
         img = self.image.copy()
