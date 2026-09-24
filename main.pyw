@@ -111,7 +111,7 @@ class LayerRowWidget(QWidget):
         self.eye_button = QPushButton()
         self.eye_button.setFixedSize(24, 24)
         if layer.group_id is not None:
-            self.eye_button.setIconSize(QSize(15, 15))
+            self.eye_button.setIconSize(QSize(16, 16))
         else:
             self.eye_button.setIconSize(QSize(20, 20))
         self.eye_button.setFlat(True)
