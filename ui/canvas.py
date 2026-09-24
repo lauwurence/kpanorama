@@ -272,12 +272,8 @@ class CanvasView(QGraphicsView):
             delta = e.position() - self.grab_last_pos
             self.grab_last_pos = e.position()
 
-            self.horizontalScrollBar().setValue(
-                self.horizontalScrollBar().value() - int(delta.x())
-            )
-            self.verticalScrollBar().setValue(
-                self.verticalScrollBar().value() - int(delta.y())
-            )
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - int(delta.x()))
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - int(delta.y()))
 
             return
 
@@ -289,6 +285,7 @@ class CanvasView(QGraphicsView):
         super().mouseMoveEvent(e)
 
     def mousePressEvent(self, e):
+
         # СКМ = Grab
         if e.button() == Qt.MouseButton.MiddleButton:
             if self.painting:
@@ -312,6 +309,10 @@ class CanvasView(QGraphicsView):
                 return
 
             if layer is self.window.layers[0]:
+                e.accept()
+                return
+
+            if not self.window.is_layer_visible(layer):
                 e.accept()
                 return
 
@@ -598,10 +599,7 @@ class CanvasView(QGraphicsView):
         # ==============================================================
 
         elif self.brush_ctrl_locked:
-            start_alpha = self.stroke_alpha_start[y0:y1, x0:x1].astype(
-                np.float32,
-                copy=False,
-            )
+            start_alpha = self.stroke_alpha_start[y0:y1, x0:x1].astype(np.float32, copy=False)
 
             result = start_alpha * (1.0 - stroke_mask)
 
@@ -610,10 +608,7 @@ class CanvasView(QGraphicsView):
         # ==============================================================
 
         else:
-            start_alpha = self.stroke_alpha_start[y0:y1, x0:x1].astype(
-                np.float32,
-                copy=False,
-            )
+            start_alpha = self.stroke_alpha_start[y0:y1, x0:x1].astype(np.float32, copy=False)
 
             content = layer.content_alpha_array[y0:y1, x0:x1]
 
@@ -640,8 +635,6 @@ class CanvasView(QGraphicsView):
                     after.copy(),
                 )
             )
-
-        layer.alpha_dirty = True
 
         self.window.update_layer_preview_region(
             layer,

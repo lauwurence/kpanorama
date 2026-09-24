@@ -376,7 +376,6 @@ class DarkCutAction():
         # ---------------------------------------------------------
 
         layer.alpha = after
-        layer.alpha_dirty = True
         layer.recalculate_content_bbox()
 
         index = self.layers.index(layer)

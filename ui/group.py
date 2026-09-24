@@ -1,3 +1,6 @@
+################################################################################
+## Groups
+
 import os
 
 import numpy as np
@@ -16,48 +19,13 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QWidget,
-    QLineEdit,
     QLabel,
 )
 
 from core.layer import LayerGroup
 
-class GroupNameEdit(QLineEdit):
+from context import icon
 
-    def __init__(self, group, parent=None):
-        super().__init__(group.name, parent)
-
-        self.group = group
-
-        self.setFrame(False)
-        self.setReadOnly(True)
-
-    def mouseDoubleClickEvent(self, event):
-        self.setReadOnly(False)
-        self.setFocus()
-        self.selectAll()
-
-        event.accept()
-
-    def keyPressEvent(self, event):
-        if event.key() in (
-            Qt.Key.Key_Return,
-            Qt.Key.Key_Enter,
-        ):
-            if not self.isReadOnly():
-                self.editingFinished.emit()
-
-            event.accept()
-            return
-
-        if event.key() == Qt.Key.Key_Escape:
-            self.setText(self.group.name)
-            self.setReadOnly(True)
-
-            event.accept()
-            return
-
-        super().keyPressEvent(event)
 
 class MainWindowGroup():
 
@@ -135,7 +103,19 @@ class MainWindowGroup():
         menu = QMenu(self)
 
         rename_action = menu.addAction("Rename Group")
+
         menu.addSeparator()
+
+        move_up_action = menu.addAction("Move Up")
+        move_up_action.triggered.connect(self.move_group_up)
+        # move_up_action.setEnabled(index > 0 and len(self.layers) > 2 and index != len(self.layers) - 1)
+
+        move_down_action = menu.addAction("Move Down")
+        move_down_action.triggered.connect(self.move_group_down)
+        # move_down_action.setEnabled(index > 1)
+
+        menu.addSeparator()
+
         delete_action = menu.addAction("Delete Group")
 
         action = menu.exec(position)
@@ -323,10 +303,10 @@ class MainWindowGroup():
 
         def update_eye_button():
             if group.visible:
-                eye_button.setIcon(self.icon("eye_show.svg"))
+                eye_button.setIcon(icon("eye_show.svg"))
                 eye_button.setStyleSheet("color: white;")
             else:
-                eye_button.setIcon(self.icon("eye_hide.svg"))
+                eye_button.setIcon(icon("eye_hide.svg"))
                 eye_button.setStyleSheet("color: #777;")
 
         update_eye_button()
@@ -368,9 +348,7 @@ class MainWindowGroup():
 
         coords_button = QPushButton("")
         coords_button.setFixedSize(24, 24)
-        coords_button.setIcon(
-            self.icon("copy_coordinates.svg")
-        )
+        coords_button.setIcon(icon("copy_coordinates.svg"))
         coords_button.setIconSize(QSize(20, 20))
         coords_button.setFlat(True)
         coords_button.setToolTip("Copy group coordinates")
@@ -382,9 +360,7 @@ class MainWindowGroup():
 
         export_button = QPushButton("")
         export_button.setFixedSize(24, 24)
-        export_button.setIcon(
-            self.icon("save_layer.svg")
-        )
+        export_button.setIcon(icon("save_layer.svg"))
         export_button.setIconSize(QSize(20, 20))
         export_button.setFlat(True)
         export_button.setToolTip("Save group")
@@ -559,6 +535,27 @@ class MainWindowGroup():
             }
             """ % (color, size)
         )
+
+
+    # def select_group(self, index):
+    #     if not 0 <= index < len(self.groups):
+    #         return
+
+    #     group = self.groups[index]
+
+    #     if group.list_item:
+    #         row = self.layer_list.row(group.list_item)
+    #         self.layer_list.setCurrentRow(row)
+
+
+    def selected_group_index(self):
+        group = self.selected_group()
+
+        if group not in self.groups:
+            return -1
+
+        return self.groups.index(group)
+
 
     def selected_group(self):
         row = self.layer_list.currentRow()

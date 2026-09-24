@@ -29,21 +29,25 @@ class Layer():
         self.group_id = None
 
         self.name = name
-        self.image = image.convert("RGB")
         self.x = x
         self.y = y
 
-        self.tag = tag if tag in {None, "HQ", "MQ", "LQ", "SQ"} else None
+        self.tag = tag if tag in [None, "HQ", "MQ", "LQ", "SQ"] else None
 
+        # Собственный цвет слоя
+        self.image = image.convert("RGB")
+
+        # Собственная прозрачностость
         if alpha:
             self.content_alpha = alpha.convert("L").copy()
         else:
             self.content_alpha = Image.new("L", self.image.size, 255)
 
-        self.alpha = self.content_alpha.copy()
+        # Та же прозрачность, но в numpy
+        self.content_alpha_array = np.asarray(self.content_alpha, dtype=np.uint8)
 
-        # Неизменяемая исходная alpha
-        self.content_alpha_array = np.asarray(self.content_alpha, dtype=np.float32)
+        # Изменяемая прозрачность
+        self.alpha = self.content_alpha.copy()
 
         self.visible = visible
         self.opacity = max(0, min(100, int(opacity)))
@@ -60,12 +64,8 @@ class Layer():
 
         # Encoded data caches
         self.image_cache = None
-        self.alpha_cache = None
-        self.content_alpha_cache = None
-
         self.image_dirty = True
-        self.alpha_dirty = True
-        self.content_alpha_dirty = True
+
         self.mask_dirty = False
 
         if original_bbox is not None:
@@ -88,6 +88,7 @@ class Layer():
 
         self.recalculate_content_bbox()
 
+
     def copy(self):
         layer = Layer(
             name=f"{self.name} copy",
@@ -103,7 +104,7 @@ class Layer():
 
         layer.group_id = self.group_id
 
-        return
+        return layer
 
     def rgba(self):
         img = self.image.copy()
@@ -111,16 +112,13 @@ class Layer():
         alpha = self.alpha.copy()
 
         if self.opacity != 100:
-            alpha = alpha.point(
-                lambda a: int(a * self.opacity / 100)
-            )
+            alpha = alpha.point(lambda a: int(a * self.opacity / 100))
 
         img.putalpha(alpha)
         return img
 
     def invert_alpha(self):
         self.alpha = ImageOps.invert(self.alpha)
-        self.alpha_dirty = True
 
 
     def original_visible_bbox(self):
@@ -179,9 +177,9 @@ class Layer():
 
     def clip_alpha_to_original_bbox(self):
         bbox = self.original_visible_bbox()
+
         if bbox is None:
             self.alpha = Image.new("L", self.image.size, 0)
-            self.alpha_dirty = True
             return
 
         ox0, oy0, ox1, oy1 = bbox
@@ -194,7 +192,6 @@ class Layer():
         alpha[:, ox1:] = 0
 
         self.alpha = Image.fromarray(alpha, "L")
-        self.alpha_dirty = True
         self.recalculate_content_bbox()
 
 

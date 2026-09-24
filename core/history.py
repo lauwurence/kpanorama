@@ -1,7 +1,7 @@
 ################################################################################
 ## History
 
-MAX_UNDO = 100
+MAX_UNDO = 20
 
 class History():
 
@@ -90,14 +90,12 @@ class History():
         elif typ == "dark_cut":
             layer = self.layers[action["index"]]
             layer.alpha = action["before"].copy()
-            layer.alpha_dirty = True
             layer.recalculate_content_bbox()
             self.update_layer_preview(layer)
 
         elif typ == "mask_adjust":
             layer = self.layers[action["index"]]
             layer.alpha = action["before"].copy()
-            layer.alpha_dirty = True
             layer.recalculate_content_bbox()
             self.update_layer_preview(layer)
 
@@ -171,14 +169,12 @@ class History():
         elif typ == "dark_cut":
             layer = self.layers[action["index"]]
             layer.alpha = action["after"].copy()
-            layer.alpha_dirty = True
             layer.recalculate_content_bbox()
             self.update_layer_preview(layer)
 
         elif typ == "mask_adjust":
             layer = self.layers[action["index"]]
             layer.alpha = action["after"].copy()
-            layer.alpha_dirty = True
             layer.recalculate_content_bbox()
             self.update_layer_preview(layer)
 
@@ -211,7 +207,6 @@ class History():
             else action["after"].copy()
         )
 
-        layer.alpha_dirty = True
         layer.recalculate_content_bbox()
         self.update_layer_preview(layer)
 
@@ -234,7 +229,6 @@ class History():
             else action["after"].copy()
         )
 
-        layer.alpha_dirty = True
         layer.recalculate_content_bbox()
 
         self.update_layer_preview(layer)

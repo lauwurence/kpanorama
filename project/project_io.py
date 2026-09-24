@@ -379,25 +379,11 @@ class ProjectIO():
                     # ВАЖНО:
                     # пересоздаём numpy-кэш именно
                     # из загруженной content_alpha.
-                    layer.content_alpha_array = (
-                        np.asarray(
-                            content_alpha,
-                            dtype=np.float32,
-                        )
-                    )
+                    layer.content_alpha_array = np.asarray(content_alpha, dtype=np.uint8)
 
                     # Кэши PNG
                     layer.image_cache = image_data
                     layer.image_dirty = False
-
-                    layer.alpha_cache = alpha_data
-                    layer.alpha_dirty = False
-
-                    layer.content_alpha_cache = (
-                        content_alpha_data
-                    )
-
-                    layer.content_alpha_dirty = False
 
                     self.layers.append(layer)
 

@@ -360,6 +360,10 @@ class MaskAdjustAction:
             self.status.setText("No layer selected")
             return
 
+        if layer is self.layers[0]:
+            self.status.setText("Background layer cannot be adjusted")
+            return
+
         layer.clip_alpha_to_original_bbox()
 
         if layer.original_visible_bbox() is None:
@@ -525,7 +529,6 @@ class MaskAdjustAction:
         # ---------------------------------------------------------
 
         layer.alpha = after
-        layer.alpha_dirty = True
         layer.recalculate_content_bbox()
 
         index = self.layers.index(layer)
