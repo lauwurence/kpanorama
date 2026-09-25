@@ -1354,7 +1354,7 @@ class MainWindow(QMainWindow,
         duplicate_layer_action.triggered.connect(lambda checked=False, l=layer: self.duplicate_layer(l))
 
         delete_action = menu.addAction("Delete Layer")
-        delete_action.triggered.connect(lambda checked=False, i=index: self.delete_layer(i))
+        delete_action.triggered.connect(lambda checked=False, l=layer: self.delete_layer(l))
         delete_action.setEnabled(index != 0)
 
         menu.exec(self.layer_list.mapToGlobal(pos))
@@ -1579,11 +1579,8 @@ class MainWindow(QMainWindow,
             mask_preview = self.create_mask_preview(layer)
             mask_qimage = pil_to_qimage(mask_preview)
             layer.preview_mask_qimage = mask_qimage
-
-            layer.preview_qimage = mask_qimage
             layer.item.set_image(mask_qimage)
         else:
-            layer.preview_qimage = normal_qimage
             layer.item.set_image(normal_qimage)
 
         self.view.viewport().update()
@@ -1658,11 +1655,10 @@ class MainWindow(QMainWindow,
         # ----------------------------------------------------
 
         for z, layer in enumerate(self.layers):
-
             preview = self.create_preview(layer)
-            layer.preview_qimage = pil_to_qimage(preview)
+            normal_qimage = pil_to_qimage(preview)
 
-            item = LayerPreviewItem(layer.preview_qimage)
+            item = LayerPreviewItem(normal_qimage)
 
             item.setPos(
                 layer.x * self.preview_scale,

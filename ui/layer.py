@@ -124,9 +124,6 @@ class LayerRowWidget(QWidget):
         self.save_button.clicked.connect(self.save_layer)
         self.save_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
-        self.index = QLabel("-")
-        layout.addWidget(self.index)
-
         layout.addWidget(self.eye_button)
         layout.addSpacing(2)
         if layer.is_solid:
@@ -184,6 +181,7 @@ class LayerRowWidget(QWidget):
             return
 
         self.layer.fill_color = new_color
+        self.layer.mark_dirty(image=True)
 
         self.update_color_button()
 
@@ -304,8 +302,6 @@ class LayerRowWidget(QWidget):
     # =========================================================================
 
     def update_appearance(self):
-
-        self.index.setText("%s" %  self.window.sorted_layers.index(self.layer))
 
         if self.window.is_layer_visible(self.layer):
             self.eye_button.setIcon(icon("eye_show.svg"))
@@ -431,6 +427,28 @@ class LayerListWidget(QListWidget):
 ## Methods
 
 class MainWindowLayer():
+
+
+    def get_layer(self, index):
+
+        if not self.layers:
+            return None
+
+        if index < len(self.layers):
+            return self.layers[index]
+
+        return None
+
+
+    def get_layer_index(self, layer):
+
+        if not self.layers:
+            return None
+
+        if layer in self.layers:
+            return self.layers.index(layer)
+
+        return None
 
 
     def get_separate_layers(self):
@@ -621,16 +639,24 @@ class MainWindowLayer():
     # Delete
     # ========================================================
 
-    def delete_layer(self, index=None):
+    def delete_layer(self, layer=None):
 
-        if index is None:
-            index = self.selected_index()
+        if layer is None:
+            layer = self.selected_layer()
 
-        if index <= 0:
-            QMessageBox.information(self, "Удаление", "Фоновый слой удалить нельзя.")
+        if layer is None:
             return
 
-        layer = self.layers.pop(index)
+        index = self.get_layer_index(layer)
+
+        if index is None:
+            return
+
+        if index <= 0:
+            QMessageBox.information(self, "Delete Layer", "Cannot delete background layer.")
+            return
+
+        self.layers.pop(index)
 
         self.push_undo({
             "type": "delete_layer",
@@ -639,9 +665,6 @@ class MainWindowLayer():
         })
 
         self.rebuild_scene()
-
-        if self.layers:
-            self.select_layer(min(index, len(self.layers) - 1))
 
         self.update_project_stats()
         self.update_window_title()

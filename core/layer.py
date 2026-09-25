@@ -102,9 +102,6 @@ class Layer():
         self.list_item = None
         self.eye_button = None
 
-        self.preview_qimage = None
-        self.preview_rgb = None
-
         self.preview_normal_qimage = None
         self.preview_mask_qimage = None
 
@@ -133,6 +130,17 @@ class Layer():
                 self._original_visible_bbox = None
 
         self.recalculate_content_bbox()
+
+    def mark_dirty(self, image=False, mask=False):
+
+        if image:
+            self._image = None
+
+            self.image_cache = None
+            self.image_dirty = True
+
+        if mask:
+            pass
 
     @property
     def name(self):
@@ -334,9 +342,6 @@ class Layer():
     def free_memory(self):
         self.image_cache = None
         self.image_dirty = True
-
-        self.preview_qimage = None
-        self.preview_rgb = None
 
         self.preview_normal_qimage = None
         self.preview_mask_qimage = None
