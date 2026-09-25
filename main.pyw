@@ -425,7 +425,7 @@ class MainWindow(QMainWindow,
         image = Image.new("RGB", (self.canvas_width, self.canvas_height), rgb)
 
         layer = Layer(
-            name=f"Solid {color.name().upper()}",
+            name="Solid",
             image=image,
             x=0,
             y=0,
@@ -2289,6 +2289,14 @@ class MainWindow(QMainWindow,
             and e.nativeScanCode() == 31
         ):
             self.toggle_solo_mode()
+            return
+
+        # Toggle Visibility
+        if (
+            modifiers == Qt.KeyboardModifier.NoModifier
+            and e.nativeScanCode() == 35
+        ):
+            self.toggle_layer_visibility()
             return
 
         # Ctrl + Z — Undo

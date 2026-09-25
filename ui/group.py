@@ -367,7 +367,7 @@ class MainWindowGroup():
             group.visible = not group.visible
 
             for layer in self.get_group_layers(group):
-                self.toggle_layer_visibility(layer=layer)
+                self.toggle_layer_visibility(layer)
 
             update_eye_button()
 

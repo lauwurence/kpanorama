@@ -63,7 +63,7 @@ class LayerRowWidget(QWidget):
             self.eye_button.setIconSize(QSize(20, 20))
         self.eye_button.setFlat(True)
         self.eye_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.eye_button.clicked.connect(lambda: self.window.toggle_layer_visibility(self.window.layers.index(self.layer)))
+        self.eye_button.clicked.connect(lambda: self.window.toggle_layer_visibility(self.layer))
 
         self.color_button = None
 
@@ -540,15 +540,17 @@ class MainWindowLayer():
         return True
 
 
-    def toggle_layer_visibility(self, index=None, layer=None):
+    def toggle_layer_visibility(self, layer=None):
 
-        if layer:
-            index = self.layers.index(layer)
-
-        if not 0 <= index < len(self.layers):
+        if not self.layers:
             return
 
-        layer = self.layers[index]
+        if layer is None:
+            layer = self.selected_layer()
+
+        if layer is None:
+            return
+
         layer.visible = not layer.visible
 
         if layer.item:
