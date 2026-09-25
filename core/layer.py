@@ -89,11 +89,11 @@ class Layer():
             self.height = height
             self._content_alpha = None
 
+            # Изменяемая прозрачность
             self.alpha = alpha.copy() if alpha else self.content_alpha.copy()
 
         # Та же прозрачность, но в numpy
         self.content_alpha_array = np.asarray(self.content_alpha, dtype=np.uint8)
-
 
         self.visible = visible
         self.opacity = max(0, min(100, int(opacity)))
@@ -301,17 +301,6 @@ class Layer():
 
     def get_image_data(self):
 
-        # Solid-слой не имеет RGB PNG.
-        #
-        # Не создаём здесь огромный Image.
-        # При сохранении проекта позже лучше сохранять:
-        #
-        # mode = "solid"
-        # fill_color = (...)
-        # width = ...
-        # height = ...
-        #
-
         if self.image_cache is None or self.image_dirty:
             buf = io.BytesIO()
 
@@ -340,6 +329,17 @@ class Layer():
 
         self.alpha = Image.fromarray(alpha, "L")
         self.recalculate_content_bbox()
+
+
+    def free_memory(self):
+        self.image_cache = None
+        self.image_dirty = True
+
+        self.preview_qimage = None
+        self.preview_rgb = None
+
+        self.preview_normal_qimage = None
+        self.preview_mask_qimage = None
 
 
 class LayerPreviewItem(QGraphicsItem):

@@ -69,16 +69,14 @@ if sys.platform == "win32":
 # PIL -> QImage
 # ============================================================
 
-def pil_to_qimage(img, width=None, height=None):
+def pil_to_qimage(img, width=None, height=None, preview=False):
+
+    image_format = QImage.Format.Format_RGBA8888
 
     if isinstance(img, (tuple, list, set)):
         r, g, b = img
 
-        qimg = QImage(
-            width,
-            height,
-            QImage.Format.Format_RGBA8888,
-        )
+        qimg = QImage(width, height, image_format)
         qimg.fill(QColor(r, g, b, 255))
 
     else:
@@ -86,13 +84,7 @@ def pil_to_qimage(img, width=None, height=None):
             img = img.convert("RGBA")
 
         data = img.tobytes("raw", "RGBA")
-        qimg = QImage(
-            data,
-            img.width,
-            img.height,
-            img.width * 4,
-            QImage.Format.Format_RGBA8888,
-        )
+        qimg = QImage(data, img.width, img.height, img.width * 4, image_format)
 
     return qimg.copy()
 
@@ -143,8 +135,8 @@ class MainWindow(QMainWindow,
         self._checker_box_width = None
         self._checker_box_height = None
 
-        # self.max_preview_size = 3000
-        self.max_preview_size = None
+        self.max_preview_size = 4000
+        # self.max_preview_size = None
         self.preview_scale = 1.0
 
         # Режим визуализации alpha-маски
@@ -726,10 +718,17 @@ class MainWindow(QMainWindow,
         settings_button.setText("Settings")
         settings_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
+
         settings_menu = QMenu(self)
 
+        settings_menu.addAction("Free Memory", self.free_memory)
+
+        settings_menu.addSeparator()
+
         settings_menu.addAction("Register File Associations", self.register_file_associations)
+
         settings_button.setMenu(settings_menu)
+
 
         toolbar.addWidget(settings_button)
 
@@ -1007,6 +1006,28 @@ class MainWindow(QMainWindow,
         QMessageBox.information(self, "File Associations", ".kpp file association registered.")
 
 
+    def free_memory(self):
+
+        reply = QMessageBox.question(self,
+            "Free Memory",
+            'Undo and redo stacks will be cleared.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        for layer in self.layers:
+            layer.free_memory()
+
+        self.undo_stack.clear()
+        self.redo_stack.clear()
+
+        self.update_history_buttons()
+        self.update_window_title()
+
+
     def set_layer_opacity_dialog(self, layer):
         if layer not in self.layers:
             return
@@ -1116,6 +1137,7 @@ class MainWindow(QMainWindow,
     # ========================================================
 
     def toggle_mask_display(self, enabled=None):
+
         if enabled is None:
             enabled = not self.mask_display_enabled
 
@@ -1124,18 +1146,31 @@ class MainWindow(QMainWindow,
         if enabled == self.mask_display_enabled:
             return
 
+        self.toggle_solo_mode(enabled, update=False)
+
         self.mask_display_enabled = enabled
         self.mask_display_action.setChecked(enabled)
+
+        self.update_mask_display()
+
+        if enabled:
+            self.status.setText("Transparency mask display enabled")
+        else:
+            self.status.setText("Normal image display enabled")
+
+
+    def update_mask_display(self):
+
+        enabled = self.mask_display_enabled
+
+        selected = self.selected_layer()
 
         for layer in self.layers:
 
             if not layer.item:
                 continue
 
-            qimage = self.get_preview_qimage(
-                layer,
-                mask=enabled,
-            )
+            qimage = self.get_preview_qimage(layer, mask=enabled and selected == layer)
 
             layer.item.set_image(qimage)
 
@@ -1144,14 +1179,7 @@ class MainWindow(QMainWindow,
 
                 self.update_layer_preview(layer)
 
-        self.toggle_solo_mode(enabled, update=False)
-
         self.view.viewport().update()
-
-        if enabled:
-            self.status.setText("Transparency mask display enabled")
-        else:
-            self.status.setText("Normal image display enabled")
 
 
     # ========================================================
@@ -1488,6 +1516,7 @@ class MainWindow(QMainWindow,
 
 
     def get_preview_qimage(self, layer, mask=False):
+
         if mask:
             if layer.preview_mask_qimage is None:
                 preview = self.create_mask_preview(layer)
@@ -1519,6 +1548,7 @@ class MainWindow(QMainWindow,
         rgb.putalpha(alpha)
 
         return rgb
+
 
     def update_layer_preview(self, layer):
         if not layer.item:
@@ -1564,7 +1594,7 @@ class MainWindow(QMainWindow,
     # ========================================================
 
     def create_checkerboard(self, width, height, cell_size=16):
-        image = QImage(width, height, QImage.Format.Format_RGB32)
+        image = QImage(width, height, QImage.Format.Format_RGB888)
         image.fill(QColor("#bdbdbd"))
 
         painter = QPainter(image)

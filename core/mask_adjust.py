@@ -200,6 +200,7 @@ class MaskAdjustDialog(QDialog):
 
 class MaskAdjustAction:
 
+
     def adjust_mask(self):
 
         layer = self.selected_layer()

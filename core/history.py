@@ -27,6 +27,7 @@ class History():
     def current_history(self):
         return tuple(id(action) for action in self.undo_stack)
 
+
     ############################################################################
     # Undo
 

@@ -497,6 +497,7 @@ class MainWindowLayer():
 
     def layer_selected(self, row):
         self.update_solo_visibility()
+        self.update_mask_display()
 
         self.view.viewport().update()
         self.update_project_stats()
