@@ -678,33 +678,7 @@ class MainWindowGroup():
 
             result.alpha_composite(rgba, (paste_x, paste_y))
 
-        # -------------------------------------------------
-        # Имя файла
-        # -------------------------------------------------
-
-        # Временно используем имя группы как базовое имя.
-        # Если хочешь, ниже можно сделать отдельный
-        # get_group_save_name(group).
         filename = self.get_group_save_name(group)
         path = os.path.join(project_dir, filename + ".png")
 
-        # -------------------------------------------------
-        # Сохраняем
-        # -------------------------------------------------
-
-        try:
-
-            result.save(
-                path,
-                format="PNG",
-                compress_level=1,
-                optimize=False
-            )
-
-            # Координаты результата относительно canvas
-            QApplication.clipboard().setText(f"({left}, {top})")
-
-            self.status.setText(f"Group saved: {os.path.basename(path)} ({left}, {top})")
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error saving", str(e))
+        self._save_image(result, path, x=left, y=top, k='group')

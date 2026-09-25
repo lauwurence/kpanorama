@@ -6,6 +6,7 @@ import sys
 
 import numpy as np
 from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 
 from PyQt6.QtCore import Qt, QSize, QTimer, QSettings, QRectF, QEvent
 from PyQt6.QtGui import (
@@ -435,6 +436,11 @@ class MainWindow(QMainWindow,
         )
 
         layer.invert_alpha()
+
+        selected = self.selected_layer()
+
+        if selected is not None and selected.group_id:
+            layer.group_id = selected.group_id
 
         # Добавляем над текущим выбранным слоем.
         index = len(self.layers)
@@ -2130,6 +2136,7 @@ class MainWindow(QMainWindow,
 
         return name
 
+
     def export_layer(self):
         layer = self.selected_layer()
 
@@ -2137,6 +2144,7 @@ class MainWindow(QMainWindow,
             return
 
         self.save_layer_as_png(layer)
+
 
     def save_layer_as_png(self, layer):
         alpha = np.asarray(layer.alpha)
@@ -2160,19 +2168,11 @@ class MainWindow(QMainWindow,
         if not path:
             return
 
-        result.save(
-            path,
-            format="PNG",
-            compress_level=1,
-            optimize=False
-        )
-
         x = int(layer.x + left)
         y = int(layer.y + top)
 
-        QApplication.clipboard().setText(f"({x}, {y})")
+        self._save_image(result, path, x=x, y=y)
 
-        self.status.setText(f"Layer saved: {os.path.basename(path)} ({x}, {y})")
 
     def save_layer_to_project_folder(self, layer):
 
@@ -2201,20 +2201,30 @@ class MainWindow(QMainWindow,
 
         result = layer.rgba().crop((left, top, right, bottom))
 
+        x = int(layer.x + left)
+        y = int(layer.y + top)
+
+        self._save_image(result, path, x=x, y=y)
+
+
+    def _save_image(self, image, path, x, y, k='layer'):
+
+        metadata = PngInfo()
+        metadata.add_text('x', str(x))
+        metadata.add_text('y', str(y))
+
         try:
-            result.save(
+            image.save(
                 path,
                 format="PNG",
+                pnginfo=metadata,
                 compress_level=1,
                 optimize=False
             )
 
-            x = int(layer.x + left)
-            y = int(layer.y + top)
-
             QApplication.clipboard().setText(f"({x}, {y})")
 
-            self.status.setText(f"Layer saved: {os.path.basename(path)} ({x}, {y})")
+            self.status.setText(f"{k.capitalize()} saved: {os.path.basename(path)} ({x}, {y})")
 
         except Exception as e:
             QMessageBox.critical(self, "Error saving", str(e))

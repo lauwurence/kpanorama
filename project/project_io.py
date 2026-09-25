@@ -225,7 +225,7 @@ class ProjectIO():
 
                     group.visible = group_data.get("visible", True)
                     group.expanded = group_data.get("expanded", True)
-                    group.tag = group_data.get("tag")
+                    group.tag = group_data.get("tag", None)
 
                     self.groups.append(group)
 
