@@ -2222,7 +2222,7 @@ class MainWindow(QMainWindow,
                 optimize=False
             )
 
-            QApplication.clipboard().setText(f"({x}, {y})")
+            # QApplication.clipboard().setText(f"({x}, {y})")
 
             self.status.setText(f"{k.capitalize()} saved: {os.path.basename(path)} ({x}, {y})")
 
