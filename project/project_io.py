@@ -141,6 +141,75 @@ def _load_project_layer(args):
     return i, layer
 
 
+def _prepare_project_layer(args):
+    i, layer = args
+
+    is_background = i == 0
+
+    image_name = None
+    alpha_name = None
+    content_alpha_name = None
+    original_bbox = None
+
+    image_data = None
+    alpha_data = None
+    content_alpha_data = None
+
+    # Image
+    if layer.is_image:
+        image_name = f"layer_{i}.png"
+        image_data = layer.get_image_data()
+
+    # Solid
+    elif layer.is_solid:
+        alpha_name = f"alpha_{i}.png"
+        alpha_data = _get_alpha_data(layer, normalize=True)
+
+    # Image alpha
+
+    if layer.is_image and not is_background:
+        alpha_name = f"alpha_{i}.png"
+        alpha_data = _get_alpha_data(layer, normalize=True)
+
+        content_alpha_data = _get_content_alpha_data(layer, normalize=True)
+
+        if content_alpha_data:
+            content_alpha_name = f"content_alpha_{i}.png"
+
+        original_bbox = layer.original_visible_bbox()
+
+    # JSON metadata
+    layer_data = {
+        'name': layer.name,
+        'image': image_name,
+        'alpha': alpha_name,
+        'opacity': layer.opacity,
+        'tag': layer.tag,
+        'content_alpha': content_alpha_name,
+        'original_bbox': (
+            list(original_bbox)
+            if original_bbox is not None
+            else None
+        ),
+        'x': layer.x,
+        'y': layer.y,
+        'visible': layer.visible,
+        'group_id': layer.group_id,
+        'mode': layer.mode,
+        'fill_color': layer.fill_color,
+        'width': layer.width,
+        'height': layer.height,
+    }
+
+    return (
+        i,
+        layer_data,
+        image_data,
+        alpha_data,
+        content_alpha_data,
+    )
+
+
 class ProjectIO():
 
 
@@ -177,82 +246,60 @@ class ProjectIO():
     def write_project(self, path):
 
         try:
+            project = {
+                'version': 10,
+                'canvas': [ self.canvas_width, self.canvas_height ],
+                'layers': [],
+                'groups': [],
+            }
+
+            # Groups
+            for group in self.groups:
+                project['groups'].append({
+                    'id': group.id,
+                    'name': group.name,
+                    'visible': group.visible,
+                    'expanded': group.expanded,
+                    'tag': group.tag,
+                })
+
+            # Prepare layers in parallel
+            layer_args = [ (i, layer) for i, layer in enumerate(self.layers) ]
+
+            with ThreadPoolExecutor(max_workers=int(context.CPU_COUNT)) as executor:
+                results = executor.map(_prepare_project_layer, layer_args)
+                prepared_layers = list(results)
+
+
+            # Write ZIP
             with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as z:
 
-                project = {
-                    'version' : 10,
-                    'canvas' : [ self.canvas_width, self.canvas_height ],
-                    'layers' : [],
-                    'groups' : [],
-                }
+                for (i, layer_data, image_data, alpha_data, content_alpha_data) in prepared_layers:
 
-                for group in self.groups:
-                    project['groups'].append({
-                        'id' : group.id,
-                        'name' : group.name,
-                        'visible' : group.visible,
-                        'expanded' : group.expanded,
-                        'tag' : group.tag,
-                    })
+                    # Image
+                    if image_data is not None:
+                        image_name = layer_data['image']
 
-                for i, layer in enumerate(self.layers):
-                    is_background = i == 0
-                    image_name = None
-                    alpha_name = None
-                    content_alpha_name = None
-                    original_bbox = None
+                        z.writestr(image_name, image_data)
 
-                    # Изображение
-                    if layer.is_image:
-                        image_name = f"layer_{i}.png"
-                        z.writestr(image_name, layer.get_image_data())
-
-                    # Цвет
-                    elif layer.is_solid:
-                        alpha_name = f"alpha_{i}.png"
-                        alpha_data = _get_alpha_data(layer, True)
+                    # Alpha
+                    if alpha_data is not None:
+                        alpha_name = layer_data['alpha']
 
                         z.writestr(alpha_name, alpha_data)
 
-                    # Фоновому изображению альфа не нужна вообще
-                    if layer.is_image and not is_background:
-                        alpha_name = f"alpha_{i}.png"
+                    # Content alpha
+                    if content_alpha_data is not None:
+                        content_alpha_name = layer_data['content_alpha']
 
-                        # Маска
-                        alpha_data = _get_alpha_data(layer, True)
+                        z.writestr(content_alpha_name, content_alpha_data)
 
-                        z.writestr(alpha_name, alpha_data)
+                    project['layers'].append(layer_data)
 
-                        # Собственная прозрачность
-                        content_alpha_data = _get_content_alpha_data(layer, True)
-
-                        if content_alpha_data:
-                            content_alpha_name = f"content_alpha_{i}.png"
-
-                            z.writestr(content_alpha_name, content_alpha_data)
-
-                        original_bbox = layer.original_visible_bbox()
-
-                    project['layers'].append({
-                        'name' : layer.name,
-                        'image' : image_name,
-                        'alpha' : alpha_name,
-                        'opacity'  : layer.opacity,
-                        'tag'  : layer.tag,
-                        'content_alpha' : content_alpha_name,
-                        'original_bbox' : ( list(original_bbox) if original_bbox is not None else None ),
-                        'x' : layer.x,
-                        'y' : layer.y,
-                        'visible' : layer.visible,
-                        'group_id' : layer.group_id,
-                        'mode' : layer.mode,
-                        'fill_color' : layer.fill_color,
-                        'width' : layer.width,
-                        'height' : layer.height,
-                    })
-
+                # Project JSON
                 z.writestr("project.json", json.dumps(project, ensure_ascii=False, indent=2))
 
+            # Finish
             self.project_path = os.path.abspath(path)
 
             self.mark_project_saved()
@@ -263,7 +310,6 @@ class ProjectIO():
 
         except Exception as e:
             QMessageBox.critical(self, "Error saving", str(e))
-
             return False
 
 
