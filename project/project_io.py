@@ -5,13 +5,16 @@ import io
 import json
 import os
 import zipfile
-
 import numpy as np
+
 from PIL import Image
+from concurrent.futures import ThreadPoolExecutor
 
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 from core.layer import Layer, LayerGroup
+
+import context
 
 
 ################################################################################
@@ -63,6 +66,79 @@ def _get_content_alpha_data(layer, normalize=False):
     content_alpha.save(buffer, format="PNG", compress_level=1, optimize=False)
 
     return buffer.getvalue()
+
+
+def _load_project_layer(args):
+    i, data, files = args
+
+    is_background = i == 0
+
+    image_data = None
+    rgb = None
+
+    mode = data.get("mode", "image")
+    fill_color = data.get("fill_color", (255, 255, 255))
+    width = data.get("width", 1000)
+    height = data.get("height", 1000)
+
+    if mode == "image":
+        image_data = files[data["image"]]
+
+        rgb = Image.open(io.BytesIO(image_data)).convert("RGB")
+
+        if is_background:
+            alpha = Image.new("L", rgb.size, 255)
+            content_alpha = Image.new("L", rgb.size, 255)
+
+        else:
+            alpha_name = data["alpha"]
+
+            if not alpha_name:
+                raise ValueError(f"Layer {i} does not have alpha data.")
+
+            alpha = Image.open(io.BytesIO(files[alpha_name])).convert("L")
+
+            content_alpha_name = data["content_alpha"]
+
+            if content_alpha_name:
+                content_alpha = Image.open(io.BytesIO(files[content_alpha_name])).convert("L")
+            else:
+                content_alpha = Image.new("L", rgb.size, 255)
+
+    elif mode == "solid":
+        alpha_name = data["alpha"]
+
+        if not alpha_name:
+            raise ValueError(f"Layer {i} does not have alpha data.")
+
+        alpha = Image.open(io.BytesIO(files[alpha_name])).convert("L")
+
+    layer = Layer(
+        data["name"],
+        rgb,
+        data["x"],
+        data["y"],
+        alpha,
+        data["visible"],
+        layer_id=data.get("id"),
+        original_bbox=data["original_bbox"],
+        opacity=data.get("opacity", 100),
+        tag=data.get("tag", None),
+        mode=mode,
+        fill_color=fill_color,
+        width=width,
+        height=height,
+    )
+
+    layer.group_id = data.get("group_id")
+
+    if mode == "image":
+        layer.content_alpha = content_alpha
+        layer.content_alpha_array = np.asarray(content_alpha, dtype=np.uint8)
+        layer.image_cache = image_data
+        layer.image_dirty = False
+
+    return i, layer
 
 
 class ProjectIO():
@@ -217,6 +293,10 @@ class ProjectIO():
 
                 self.canvas_width, self.canvas_height = project["canvas"]
 
+                # ----------------------------------------------------
+                # Groups
+                # ----------------------------------------------------
+
                 for group_data in project.get("groups", []):
                     group = LayerGroup(
                         name=group_data.get("name", "Group"),
@@ -229,91 +309,65 @@ class ProjectIO():
 
                     self.groups.append(group)
 
-                for i, data in enumerate(project["layers"]):
-                    is_background = i == 0
-                    image_name = data["image"]
-                    image_data = None
+                # ----------------------------------------------------
+                # Read image data from ZIP
+                # ----------------------------------------------------
+
+                layer_files = {}
+
+                for data in project["layers"]:
                     mode = data.get("mode", "image")
-                    fill_color = data.get('fill_color', (255, 255, 255))
-                    width = data.get('width', 1000)
-                    height = data.get('height', 1000)
-                    rgb = None
 
-                    if mode == 'image':
-                        image_data = z.read(image_name)
-                        rgb = Image.open(io.BytesIO(image_data)).convert("RGB")
+                    if mode == "image":
+                        names = [
+                            data["image"],
+                            data["alpha"],
+                            data.get("content_alpha"),
+                        ]
 
-                        if is_background:
-                            alpha = Image.new("L", rgb.size, 255)
-                            content_alpha = Image.new("L", rgb.size, 255)
+                    else:
+                        names = [ data["alpha"] ]
 
-                        else:
-                            alpha_name = data["alpha"]
+                    for name in names:
 
-                            if not alpha_name:
-                                raise ValueError(f"У слоя {i} отсутствует alpha")
+                        if name and name not in layer_files:
+                            layer_files[name] = z.read(name)
 
-                            alpha = Image.open(io.BytesIO(z.read(alpha_name))).convert("L")
+                # ----------------------------------------------------
+                # Load layers in parallel
+                # ----------------------------------------------------
 
-                            content_alpha_name = data["content_alpha"]
+                layer_args = [ (i, data, layer_files) for i, data in enumerate(project["layers"]) ]
 
-                            if content_alpha_name:
-                                content_alpha = Image.open(io.BytesIO(z.read(content_alpha_name))).convert("L")
-                            else:
-                                content_alpha = Image.new("L", rgb.size, 255)
+                with ThreadPoolExecutor(max_workers=int(context.CPU_COUNT)) as executor:
+                    results = executor.map(_load_project_layer, layer_args)
 
-                    elif mode == 'solid':
-                        alpha_name = data["alpha"]
+                    loaded_layers = list(results)
 
-                        if not alpha_name:
-                            raise ValueError(f"У слоя {i} отсутствует alpha")
+                # executor.map сохраняет порядок, поэтому sort не нужен
+                self.layers.extend(layer for _, layer in loaded_layers)
 
-                        alpha = Image.open(io.BytesIO(z.read(alpha_name))).convert("L")
-
-                    layer = Layer(
-                        data["name"],
-                        rgb,
-                        data["x"],
-                        data["y"],
-                        alpha,
-                        data["visible"],
-                        layer_id=data.get("id"),
-                        original_bbox=data["original_bbox"],
-                        opacity=data.get("opacity", 100),
-                        tag=data.get("tag", None),
-                        mode=mode,
-                        fill_color=fill_color,
-                        width=width,
-                        height=height,
-                    )
-
-                    layer.group_id = data.get("group_id")
-
-                    # Для изображений восстанавливаем собственную прозрачность
-                    if mode == 'image':
-                        layer.content_alpha = content_alpha
-                        layer.content_alpha_array = np.asarray(content_alpha, dtype=np.uint8)
-
-                        layer.image_cache = image_data
-                        layer.image_dirty = False
-
-                    self.layers.append(layer)
+            # --------------------------------------------------------
+            # Finish loading
+            # --------------------------------------------------------
 
             self.undo_stack.clear()
             self.redo_stack.clear()
+
             self.rebuild_scene()
 
             self.project_path = os.path.abspath(path)
+
             self.update_project_stats()
 
             if self.layers:
                 self.select_layer(len(self.layers) - 1)
 
             self.mark_project_saved()
+
             self.status.setText("Project loaded")
 
             QTimer.singleShot(0, self.fit_canvas_to_view)
-
 
         except Exception as e:
             QMessageBox.critical(self, "Error loading", str(e))

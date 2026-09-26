@@ -7,6 +7,8 @@ import sys
 import numpy as np
 from PIL import Image
 
+from concurrent.futures import ThreadPoolExecutor
+
 from PyQt6.QtCore import Qt, QSize, QTimer, QSettings, QRectF, QEvent
 from PyQt6.QtGui import (
     QColor,
@@ -57,6 +59,7 @@ import context
 
 context.BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 context.ICON_DIR = os.path.join(context.BASE_DIR, "icons")
+context.CPU_COUNT = int(os.cpu_count() or 8)
 
 from context import icon
 
@@ -1591,16 +1594,22 @@ class MainWindow(QMainWindow,
         self.rebuild_layers_ui()
 
 
+    def _create_layer_preview(self, args):
+        z, layer = args
+
+        preview = self.create_preview(layer)
+        normal_qimage = pil_to_qimage(preview)
+
+        return z, layer, normal_qimage
+
+
     def rebuild_scene_view(self):
         scene = self.view.scene()
         scene.clear()
 
         self.preview_scale = self.calculate_preview_scale()
 
-        # ----------------------------------------------------
         # Checkerboard background
-        # ----------------------------------------------------
-
         if self.canvas_width and self.canvas_height:
 
             if self.canvas_width != self._checker_box_width and \
@@ -1620,33 +1629,30 @@ class MainWindow(QMainWindow,
 
             scene.addItem(checker_item)
 
-        # ----------------------------------------------------
         # Layers
-        # ----------------------------------------------------
+        with ThreadPoolExecutor(max_workers=int(context.CPU_COUNT)) as executor:
+            results = executor.map(self._create_layer_preview, enumerate(self.layers))
 
-        for z, layer in enumerate(self.layers):
-            preview = self.create_preview(layer)
-            normal_qimage = pil_to_qimage(preview)
+            for z, layer, normal_qimage in results:
+                item = LayerPreviewItem(normal_qimage)
 
-            item = LayerPreviewItem(normal_qimage)
+                item.setPos(
+                    layer.x * self.preview_scale,
+                    layer.y * self.preview_scale
+                )
 
-            item.setPos(
-                layer.x * self.preview_scale,
-                layer.y * self.preview_scale,
-            )
+                item.setZValue(z)
 
-            item.setZValue(z)
+                if self.solo_mode_enabled:
+                    visible = layer is self.selected_layer()
+                else:
+                    visible = self.is_layer_visible(layer)
 
-            if self.solo_mode_enabled:
-                visible = layer is self.selected_layer()
-            else:
-                visible = self.is_layer_visible(layer)
+                item.setVisible(visible)
 
-            item.setVisible(visible)
+                layer.item = item
 
-            layer.item = item
-
-            scene.addItem(item)
+                scene.addItem(item)
 
         self.update_scene_layer_order()
         self.update_scene_rect()
