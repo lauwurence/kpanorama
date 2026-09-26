@@ -57,7 +57,7 @@ from core.edge_mask import EdgeMaskAction
 from core.dark_cut import DarkCutAction
 from core.mask_adjust import MaskAdjustAction
 
-APP_VERSION = (0, 1, 5)
+APP_VERSION = (0, 2, 0)
 
 import context
 
