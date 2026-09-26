@@ -131,7 +131,7 @@ class MainWindow(QMainWindow,
         self.resize(1450, 900)
 
         self._preview_executor = ThreadPoolExecutor(
-            max_workers=max(1, int(context.CPU_COUNT))
+            max_workers=max(1, min(int(context.CPU_COUNT), 8))
         )
 
         self._preview_results = Queue()
