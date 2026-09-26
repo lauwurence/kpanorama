@@ -1276,6 +1276,9 @@ class MainWindow(QMainWindow,
 
     def toggle_mask_display(self, enabled=None):
 
+        if self._preview_jobs:
+            return
+
         if enabled is None:
             enabled = not self.mask_display_enabled
 
@@ -1387,26 +1390,26 @@ class MainWindow(QMainWindow,
             if visible:
                 layer.item.setVisible(True)
 
-                use_mask = (
-                    self.mask_display_enabled
-                    and layer is selected
-                )
+                # use_mask = (
+                #     self.mask_display_enabled
+                #     and layer is selected
+                # )
 
-                self._request_layer_preview(
-                    layer,
-                    use_mask=use_mask,
-                )
+                # self._request_layer_preview(
+                #     layer,
+                #     use_mask=use_mask,
+                # )
 
             else:
                 layer.item.setVisible(False)
 
-                # Освобождаем тяжёлые QImage скрытого слоя.
-                layer.preview_normal_qimage = None
-                layer.preview_mask_qimage = None
+                # # Освобождаем тяжёлые QImage скрытого слоя.
+                # layer.preview_normal_qimage = None
+                # layer.preview_mask_qimage = None
 
-                layer.item.set_image(
-                    self._empty_preview_qimage
-                )
+                # layer.item.set_image(
+                #     self._empty_preview_qimage
+                # )
 
         if update:
             self.view.viewport().update()
