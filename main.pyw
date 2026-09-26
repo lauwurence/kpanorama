@@ -2123,15 +2123,11 @@ class MainWindow(QMainWindow,
     # Export PNG
     # ========================================================
 
-    def get_layer_save_name(self, layer):
-        name = layer.name.strip()
+    def get_layer_save_name(self, layer, tag=True):
 
-        if not name:
-            name = "Layer"
+        name = os.path.splitext(layer.name.strip())[0]
 
-        name = os.path.splitext(name)[0]
-
-        if layer.tag is not None:
+        if tag and (layer.tag is not None):
             name += f"_{layer.tag}"
 
         return name
@@ -2171,7 +2167,9 @@ class MainWindow(QMainWindow,
         x = int(layer.x + left)
         y = int(layer.y + top)
 
-        self._save_image(result, path, x=x, y=y)
+        self._remove_images(layer=layer)
+
+        self._save_image(result, path, x=x, y=y, k='layer')
 
 
     def save_layer_to_project_folder(self, layer):
@@ -2204,10 +2202,35 @@ class MainWindow(QMainWindow,
         x = int(layer.x + left)
         y = int(layer.y + top)
 
-        self._save_image(result, path, x=x, y=y)
+        self._remove_images(layer=layer)
+
+        self._save_image(result, path, x=x, y=y, k='layer')
 
 
-    def _save_image(self, image, path, x, y, k='layer'):
+    def _remove_images(self, layer=None, group=None):
+
+        if layer:
+            filename = self.get_layer_save_name(layer, tag=False)
+        elif group:
+            filename = self.get_group_save_name(group, tag=False)
+        else:
+            raise Exception("`layer` or `group` must be provided.")
+
+        project_dir = os.path.dirname(os.path.abspath(self.project_path))
+
+        for suffix in ["", "_HQ", "_MQ", "_LQ", "_SQ"]:
+            path = os.path.join(project_dir, filename + suffix + ".png")
+
+            if not os.path.exists(path):
+                continue
+
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+
+
+    def _save_image(self, image, path, x, y, k):
 
         metadata = PngInfo()
         metadata.add_text('x', str(x))
@@ -2222,9 +2245,7 @@ class MainWindow(QMainWindow,
                 optimize=False
             )
 
-            # QApplication.clipboard().setText(f"({x}, {y})")
-
-            self.status.setText(f"{k.capitalize()} saved: {os.path.basename(path)} ({x}, {y})")
+            self.status.setText(f"{k.capitalize()} saved: {os.path.basename(path)}")
 
         except Exception as e:
             QMessageBox.critical(self, "Error saving", str(e))

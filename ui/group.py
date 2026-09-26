@@ -571,15 +571,10 @@ class MainWindowGroup():
         self.status.setText(f"Coordinates copied: {text}")
 
 
-    def get_group_save_name(self, group):
-        name = group.name.strip()
+    def get_group_save_name(self, group, tag=True):
+        name = os.path.splitext(group.name.strip())[0]
 
-        if not name:
-            name = "Group"
-
-        name = os.path.splitext(name)[0]
-
-        if group.tag is not None:
+        if tag and (group.tag is not None):
             name += f"_{group.tag}"
 
         return name
@@ -680,5 +675,7 @@ class MainWindowGroup():
 
         filename = self.get_group_save_name(group)
         path = os.path.join(project_dir, filename + ".png")
+
+        self._remove_images(group=group)
 
         self._save_image(result, path, x=left, y=top, k='group')
