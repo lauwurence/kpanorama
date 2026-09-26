@@ -173,10 +173,42 @@ class MainWindow(QMainWindow,
         if geometry:
             self.restoreGeometry(geometry)
 
-        self._empty_preview_qimage = QImage(
-            1, 1, QImage.Format.Format_RGBA8888
-        )
+        self._empty_preview_qimage = QImage(1, 1, QImage.Format.Format_RGBA8888)
         self._empty_preview_qimage.fill(Qt.GlobalColor.transparent)
+
+        self._visited_layers = []
+
+
+    def add_visited_layer(self, layer, max_len=5):
+
+        if not layer:
+            return
+
+        while layer.id in self._visited_layers:
+            self._visited_layers.remove(layer.id)
+
+        self._visited_layers.append(layer.id)
+
+        for l in self.layers:
+
+            if self.is_layer_visible(l):
+                continue
+
+            if l.id in self._visited_layers[-max_len:]:
+                continue
+
+            l.free_memory()
+
+            while l.id in self._visited_layers:
+                self._visited_layers.remove(l.id)
+
+
+    def has_visited_layer(self, layer):
+
+        if not layer:
+            return False
+
+        return layer.id in self._visited_layers
 
 
     @property
@@ -251,11 +283,7 @@ class MainWindow(QMainWindow,
 
         self._preview_jobs.add(key)
 
-        future = self._preview_executor.submit(
-            self._preview_worker,
-            layer,
-            use_mask,
-        )
+        future = self._preview_executor.submit(self._preview_worker, layer, use_mask)
 
         def finished(f):
             try:
@@ -288,10 +316,7 @@ class MainWindow(QMainWindow,
                 continue
 
             # Проверяем, что этот preview всё ещё нужен.
-            if not self._layer_should_have_preview(
-                layer,
-                self.selected_layer(),
-            ):
+            if not self._layer_should_have_preview(layer, self.selected_layer()):
                 continue
 
             if use_mask:
@@ -1308,42 +1333,35 @@ class MainWindow(QMainWindow,
             if not layer.item:
                 continue
 
-            visible = self._layer_should_have_preview(
-                layer,
-                selected,
-            )
+            visible = self._layer_should_have_preview(layer, selected)
 
             if not visible:
                 layer.item.setVisible(False)
 
-                layer.preview_normal_qimage = None
-                layer.preview_mask_qimage = None
+                if not self.has_visited_layer(layer):
+                    layer.preview_normal_qimage = None
+                    layer.preview_mask_qimage = None
 
-                layer.item.set_image(
-                    self._empty_preview_qimage
-                )
+                layer.item.set_image(self._empty_preview_qimage)
 
                 continue
 
             layer.item.setVisible(True)
 
-            if self.mask_display_enabled and layer is selected:
+            # Показываем маску только для выбранного слоя или для слоёв на одном уровне
+            if self.mask_display_enabled and (layer is selected or layer.group_id == selected.group_id):
 
-                # Нужен mask только выбранного слоя.
-                self._request_layer_preview(
-                    layer,
-                    use_mask=True,
-                )
+                if not self.has_visited_layer(layer):
+                    layer.preview_normal_qimage = None
+
+                self._request_layer_preview(layer, use_mask=True)
 
             else:
 
-                # Остальным слоям нужен обычный preview.
-                layer.preview_mask_qimage = None
+                if not self.has_visited_layer(layer):
+                    layer.preview_mask_qimage = None
 
-                self._request_layer_preview(
-                    layer,
-                    use_mask=False,
-                )
+                self._request_layer_preview(layer, use_mask=False)
 
         self.view.viewport().update()
 
@@ -1850,10 +1868,17 @@ class MainWindow(QMainWindow,
 
         return qimage
 
+
     def _layer_should_have_preview(self, layer, selected=None):
+
         if self.solo_mode_enabled or self.mask_display_enabled:
+
             if selected is None:
                 selected = self.selected_layer()
+
+            if layer and selected and layer.group_id == selected.group_id:
+                return True
+
             return layer is selected
 
         return self.is_layer_visible(layer)
@@ -1899,10 +1924,7 @@ class MainWindow(QMainWindow,
         # Сначала создаём item ВСЕМ слоям.
         # Но preview реально создаём только видимым.
         for z, layer in enumerate(self.layers):
-            visible = self._layer_should_have_preview(
-                layer,
-                selected,
-            )
+            visible = self._layer_should_have_preview(layer, selected)
 
             item = LayerPreviewItem(self._empty_preview_qimage)
 
@@ -1923,24 +1945,14 @@ class MainWindow(QMainWindow,
                     and layer is selected
                 )
 
-                render_args.append(
-                    (z, layer, use_mask)
-                )
+                render_args.append((z, layer, use_mask))
 
         # Полные изображения создаём только для visible layers.
-        with ThreadPoolExecutor(
-            max_workers=min(
-                int(context.CPU_COUNT),
-                max(1, len(render_args)),
-            )
-        ) as executor:
-
-            results = executor.map(
-                self._create_layer_preview,
-                render_args,
-            )
+        with ThreadPoolExecutor(max_workers=min(int(context.CPU_COUNT), max(1, len(render_args)))) as executor:
+            results = executor.map(self._create_layer_preview, render_args)
 
             for z, layer, qimage, use_mask in results:
+
                 if use_mask:
                     layer.preview_mask_qimage = qimage
                 else:
@@ -1959,13 +1971,6 @@ class MainWindow(QMainWindow,
             layer.item.setZValue(z)
 
         self.view.viewport().update()
-
-    def _release_layer_preview(self, layer):
-        layer.preview_normal_qimage = None
-        layer.preview_mask_qimage = None
-
-        if layer.item:
-            layer.item.set_image(self._empty_preview_qimage)
 
 
     def rebuild_layers_ui(self):

@@ -181,7 +181,7 @@ class MainWindowGroup():
             self,
             "Add To Group",
             f"Select group:",
-            group_names,
+            list(reversed(group_names)),
             current_index,
             False,
         )

@@ -136,11 +136,13 @@ class Layer():
         if image:
             self._image = None
 
+            self.preview_normal_qimage = None
+
             self.image_cache = None
             self.image_dirty = True
 
         if mask:
-            pass
+            self.preview_mask_qimage = None
 
     @property
     def name(self):
@@ -345,6 +347,8 @@ class Layer():
 
         self.preview_normal_qimage = None
         self.preview_mask_qimage = None
+
+        self._image = None
 
 
 class LayerPreviewItem(QGraphicsItem):
