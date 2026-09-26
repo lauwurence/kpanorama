@@ -166,7 +166,6 @@ def _prepare_project_layer(args):
         alpha_data = _get_alpha_data(layer, normalize=True)
 
     # Image alpha
-
     if layer.is_image and not is_background:
         alpha_name = f"alpha_{i}.png"
         alpha_data = _get_alpha_data(layer, normalize=True)
@@ -339,10 +338,7 @@ class ProjectIO():
 
                 self.canvas_width, self.canvas_height = project["canvas"]
 
-                # ----------------------------------------------------
                 # Groups
-                # ----------------------------------------------------
-
                 for group_data in project.get("groups", []):
                     group = LayerGroup(
                         name=group_data.get("name", "Group"),
@@ -355,10 +351,7 @@ class ProjectIO():
 
                     self.groups.append(group)
 
-                # ----------------------------------------------------
                 # Read image data from ZIP
-                # ----------------------------------------------------
-
                 layer_files = {}
 
                 for data in project["layers"]:
@@ -379,24 +372,17 @@ class ProjectIO():
                         if name and name not in layer_files:
                             layer_files[name] = z.read(name)
 
-                # ----------------------------------------------------
                 # Load layers in parallel
-                # ----------------------------------------------------
-
                 layer_args = [ (i, data, layer_files) for i, data in enumerate(project["layers"]) ]
 
                 with ThreadPoolExecutor(max_workers=int(context.CPU_COUNT)) as executor:
                     results = executor.map(_load_project_layer, layer_args)
-
                     loaded_layers = list(results)
 
                 # executor.map сохраняет порядок, поэтому sort не нужен
                 self.layers.extend(layer for _, layer in loaded_layers)
 
-            # --------------------------------------------------------
             # Finish loading
-            # --------------------------------------------------------
-
             self.undo_stack.clear()
             self.redo_stack.clear()
 
