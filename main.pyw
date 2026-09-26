@@ -6,7 +6,6 @@ import sys
 
 import numpy as np
 from PIL import Image
-from PIL.PngImagePlugin import PngInfo
 
 from PyQt6.QtCore import Qt, QSize, QTimer, QSettings, QRectF, QEvent
 from PyQt6.QtGui import (
@@ -45,6 +44,7 @@ from ui.canvas import CanvasView
 from ui.group import MainWindowGroup
 from ui.layer import MainWindowLayer, LayerListWidget, LayerRowWidget
 from ui.brush import MainWindowBrush
+from ui.export import MainWindowExport
 
 from core.smart_mask import SmartMaskAction
 from core.edge_mask import EdgeMaskAction
@@ -97,6 +97,7 @@ def pil_to_qimage(img, width=None, height=None, preview=False):
 class MainWindow(QMainWindow,
                  History,
                  ProjectIO,
+                 MainWindowExport,
                  MainWindowBrush,
                  MainWindowLayer,
                  MainWindowGroup,
@@ -225,22 +226,14 @@ class MainWindow(QMainWindow,
 
         # Небольшой отступ от краёв viewport.
         margin = 20
-        rect.adjust(
-            -margin,
-            -margin,
-            margin,
-            margin,
-        )
+        rect.adjust(-margin, -margin, margin, margin)
 
-        self.view.fitInView(
-            rect,
-            Qt.AspectRatioMode.KeepAspectRatio,
-        )
-
+        self.view.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
         self.view.centerOn(rect.center())
 
         self.update_zoom_status()
         self.view.viewport().update()
+
 
     def fit_canvas_to_view(self):
         if not self.canvas_width or not self.canvas_height:
@@ -260,10 +253,7 @@ class MainWindow(QMainWindow,
         margin = 20
         rect.adjust(-margin, -margin, margin, margin)
 
-        self.view.fitInView(
-            rect,
-            Qt.AspectRatioMode.KeepAspectRatio,
-        )
+        self.view.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio )
 
         self.view.centerOn(rect.center())
         self.update_zoom_status()
@@ -296,10 +286,7 @@ class MainWindow(QMainWindow,
         preview_w = px1 - px0
         preview_h = py1 - py0
 
-        # ----------------------------------------
         # Берём только нужный участок исходника
-        # ----------------------------------------
-
         src_x0 = max(0, int(np.floor(px0 / s)))
         src_y0 = max(0, int(np.floor(py0 / s)))
         src_x1 = min(layer.width, int(np.ceil(px1 / s)))
@@ -323,20 +310,13 @@ class MainWindow(QMainWindow,
 
             rgb.putalpha(alpha)
 
-        # ----------------------------------------
-        # Очень важно:
-        # patch должен иметь ровно preview-размер
-        # ----------------------------------------
-
+        # Очень важно: patch должен иметь ровно preview-размер
         if (rgb.width != preview_w) or (rgb.height != preview_h):
             rgb = rgb.resize((preview_w, preview_h), Image.Resampling.LANCZOS)
 
         patch = pil_to_qimage(rgb)
 
-        # ----------------------------------------
         # Меняем только маленький участок QImage
-        # ----------------------------------------
-
         layer.item.update_region(patch, px0, py0)
 
 
@@ -369,13 +349,6 @@ class MainWindow(QMainWindow,
                 self.canvas_width = rgb.width
                 self.canvas_height = rgb.height
 
-                x = 0
-                y = 0
-
-            else:
-                x = 0
-                y = 0
-
             base_name = "Clipboard"
             layer_name = base_name
             number = 2
@@ -385,6 +358,10 @@ class MainWindow(QMainWindow,
             while layer_name in existing_names:
                 layer_name = f"{base_name} {number}"
                 number += 1
+
+            # TODO: Добавить crop?
+            x = 0
+            y = 0
 
             layer = Layer(layer_name, rgb, x, y, alpha)
 
@@ -561,6 +538,7 @@ class MainWindow(QMainWindow,
 
         return super().eventFilter(obj, event)
 
+
     def setup_ui(self):
 
         def create_separator():
@@ -720,10 +698,13 @@ class MainWindow(QMainWindow,
 
         toolbar.addWidget(file_button)
 
+        # ----------------------------------------------------
+        # Settings
+        # ----------------------------------------------------
+
         settings_button = QToolButton()
         settings_button.setText("Settings")
         settings_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-
 
         settings_menu = QMenu(self)
 
@@ -734,7 +715,6 @@ class MainWindow(QMainWindow,
         settings_menu.addAction("Register File Associations", self.register_file_associations)
 
         settings_button.setMenu(settings_menu)
-
 
         toolbar.addWidget(settings_button)
 
@@ -910,27 +890,23 @@ class MainWindow(QMainWindow,
 
         self.zoom_label = QLabel("Zoom: 100%   | ")
         self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.zoom_label.setStyleSheet(
-            """
+        self.zoom_label.setStyleSheet("""
             QLabel {
                 color: #999;
                 padding: 0 0px;
             }
-            """
-        )
+        """)
         status_bar.addPermanentWidget(self.zoom_label)
 
 
         self.project_stats = QLabel()
         self.project_stats.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.project_stats.setStyleSheet(
-            """
+        self.project_stats.setStyleSheet("""
             QLabel {
                 color: #999;
                 padding: 0 0px;
             }
-            """
-        )
+        """)
         status_bar.addPermanentWidget(self.project_stats)
 
         self.update_project_stats()
@@ -998,11 +974,13 @@ class MainWindow(QMainWindow,
             f"Size: {file_size_text}"
         )
 
+
     def start_layer_rename(self, item):
         widget = self.layer_list.itemWidget(item)
 
         if isinstance(widget, LayerRowWidget):
             widget.start_rename()
+
 
     def register_file_associations(self):
         from core.association import register_kpp_file_association
@@ -1038,15 +1016,7 @@ class MainWindow(QMainWindow,
         if layer not in self.layers:
             return
 
-        value, ok = QInputDialog.getInt(
-            self,
-            "Set Opacity",
-            "Opacity:",
-            layer.opacity,
-            0,
-            100,
-            10,
-        )
+        value, ok = QInputDialog.getInt(self, "Set Opacity", "Opacity:", layer.opacity, 0, 100, 10)
 
         if not ok or value == layer.opacity:
             return
@@ -1112,12 +1082,7 @@ class MainWindow(QMainWindow,
         alpha = np.asarray(layer.alpha, dtype=np.float32)
 
         new_alpha = alpha * (1.0 - reduction)
-
-        new_alpha = np.clip(
-            new_alpha,
-            0,
-            255,
-        ).astype(np.uint8)
+        new_alpha = np.clip(new_alpha, 0, 255).astype(np.uint8)
 
         old_alpha = layer.alpha.copy()
 
@@ -1371,9 +1336,7 @@ class MainWindow(QMainWindow,
     # ========================================================
 
     def open_image(self):
-        path, _ = QFileDialog.getOpenFileName(self,
-            "Add image",
-            "",
+        path, _ = QFileDialog.getOpenFileName(self, "Add image",  "",
             "Images (*.png *.jpg *.jpeg *.webp *.bmp *.tif *.tiff)",
         )
 
@@ -1412,6 +1375,7 @@ class MainWindow(QMainWindow,
     # ========================================================
 
     def add_image(self, path):
+
         try:
             if not self.layers:
                 img = Image.open(path)
@@ -1514,7 +1478,7 @@ class MainWindow(QMainWindow,
         w = max(1, round(layer.width * s))
         h = max(1, round(layer.height * s))
 
-        alpha = layer.alpha.resize((w, h), Image.Resampling.LANCZOS)
+        alpha = layer.alpha.resize((w, h), Image.Resampling.BICUBIC)
         alpha_array = np.asarray(alpha, dtype=np.uint8)
         rgb_array = self.mask_color_lut[alpha_array]
 
@@ -1719,7 +1683,6 @@ class MainWindow(QMainWindow,
             if group_layers:
                 self.create_group_separator(group)
 
-
         # Затем слои, которые не входят ни в одну группу.
         ungrouped_layers = [ layer for layer in self.layers if layer.group_id is None ]
 
@@ -1763,6 +1726,7 @@ class MainWindow(QMainWindow,
 
         return item
 
+
     # ========================================================
     # Scene rect
     # ========================================================
@@ -1787,11 +1751,7 @@ class MainWindow(QMainWindow,
 
         # Фоновый слой объединять не с чем
         if index <= 0:
-            QMessageBox.information(
-                self,
-                "Merge Layer",
-                "Select a layer above the background.",
-            )
+            QMessageBox.information(self, "Merge Layer", "Select a layer above the background.")
             return
 
         if index >= len(self.layers):
@@ -1800,31 +1760,19 @@ class MainWindow(QMainWindow,
         background = self.layers[0]
         layer = self.layers[index]
 
-        # ----------------------------------------------------
         # Сохраняем состояние для Undo
-        # ----------------------------------------------------
-
         old_background_image = background.image.copy()
         old_background_alpha = background.alpha.copy()
 
-        # ----------------------------------------------------
         # RGBA
-        # ----------------------------------------------------
-
         background_rgba = background.rgba().copy()
         layer_rgba = layer.rgba()
 
-        # ----------------------------------------------------
         # Позиция слоя относительно background
-        # ----------------------------------------------------
-
         x = int(round(layer.x - background.x))
         y = int(round(layer.y - background.y))
 
-        # ----------------------------------------------------
         # Область пересечения
-        # ----------------------------------------------------
-
         bx0 = max(0, x)
         by0 = max(0, y)
 
@@ -1839,11 +1787,7 @@ class MainWindow(QMainWindow,
         )
 
         if bx1 <= bx0 or by1 <= by0:
-            QMessageBox.information(
-                self,
-                "Merge Layer",
-                "The selected layer does not intersect the background.",
-            )
+            QMessageBox.information(self, "Merge Layer", "The selected layer does not intersect the background.")
             return
 
         # Координаты внутри layer
@@ -1853,35 +1797,15 @@ class MainWindow(QMainWindow,
         lx1 = lx0 + (bx1 - bx0)
         ly1 = ly0 + (by1 - by0)
 
-        # ----------------------------------------------------
         # Crop
-        # ----------------------------------------------------
+        bg_crop = background_rgba.crop((bx0, by0, bx1, by1))
+        layer_crop = layer_rgba.crop((lx0, ly0, lx1, ly1))
 
-        bg_crop = background_rgba.crop(
-            (bx0, by0, bx1, by1)
-        )
-
-        layer_crop = layer_rgba.crop(
-            (lx0, ly0, lx1, ly1)
-        )
-
-        # ----------------------------------------------------
         # Композитинг с учётом alpha mask слоя
-        # ----------------------------------------------------
+        merged_crop = Image.alpha_composite(bg_crop, layer_crop)
 
-        merged_crop = Image.alpha_composite(
-            bg_crop,
-            layer_crop,
-        )
-
-        # ----------------------------------------------------
         # Записываем результат в background
-        # ----------------------------------------------------
-
-        background_rgba.paste(
-            merged_crop,
-            (bx0, by0),
-        )
+        background_rgba.paste(merged_crop, (bx0, by0))
 
         background.image = background_rgba.convert("RGB")
         background.alpha = background_rgba.getchannel("A")
@@ -1891,29 +1815,16 @@ class MainWindow(QMainWindow,
 
         background.recalculate_content_bbox()
 
-        # ----------------------------------------------------
         # Удаляем объединённый слой
-        # ----------------------------------------------------
-
         self.layers.pop(index)
-
-        # ----------------------------------------------------
-        # Undo
-        # ----------------------------------------------------
 
         self.push_undo({
             "type": "merge_with_background",
-
             "index": index,
             "layer": layer,
-
             "background_image": old_background_image,
             "background_alpha": old_background_alpha,
         })
-
-        # ----------------------------------------------------
-        # Перестраиваем сцену
-        # ----------------------------------------------------
 
         self.rebuild_scene()
         self.select_layer(0)
@@ -1932,10 +1843,7 @@ class MainWindow(QMainWindow,
         background = self.layers[0]
 
         if undo:
-            # ------------------------------------------------
             # Возвращаем background в исходное состояние
-            # ------------------------------------------------
-
             background.image = action["background_image"].copy()
             background.alpha = action["background_alpha"].copy()
 
@@ -1944,10 +1852,7 @@ class MainWindow(QMainWindow,
 
             background.recalculate_content_bbox()
 
-            # ------------------------------------------------
             # Возвращаем слой на прежнее место
-            # ------------------------------------------------
-
             if layer not in self.layers:
                 self.layers.insert(index, layer)
 
@@ -1956,8 +1861,7 @@ class MainWindow(QMainWindow,
             # Повторяем Merge
             # ------------------------------------------------
 
-            # В случае Redo нужно снова наложить layer
-            # на background.
+            # В случае Redo нужно снова наложить layer на background
             background_rgba = background.rgba().copy()
             layer_rgba = layer.rgba()
 
@@ -1985,23 +1889,12 @@ class MainWindow(QMainWindow,
                 lx1 = lx0 + (bx1 - bx0)
                 ly1 = ly0 + (by1 - by0)
 
-                bg_crop = background_rgba.crop(
-                    (bx0, by0, bx1, by1)
-                )
+                bg_crop = background_rgba.crop((bx0, by0, bx1, by1))
+                layer_crop = layer_rgba.crop((lx0, ly0, lx1, ly1))
 
-                layer_crop = layer_rgba.crop(
-                    (lx0, ly0, lx1, ly1)
-                )
+                merged_crop = Image.alpha_composite(bg_crop, layer_crop)
 
-                merged_crop = Image.alpha_composite(
-                    bg_crop,
-                    layer_crop,
-                )
-
-                background_rgba.paste(
-                    merged_crop,
-                    (bx0, by0),
-                )
+                background_rgba.paste(merged_crop, (bx0, by0))
 
                 background.image = background_rgba.convert("RGB")
                 background.alpha = background_rgba.getchannel("A")
@@ -2072,7 +1965,6 @@ class MainWindow(QMainWindow,
         alpha = action["before"] if undo else action["after"]
 
         layer.alpha.paste(alpha, (x0, y0))
-
         layer.recalculate_content_bbox()
 
         self.update_layer_preview(layer)
@@ -2117,138 +2009,6 @@ class MainWindow(QMainWindow,
             self.redo_action.setEnabled(False)
             self.redo_action.setIcon(icon("redo_inactive.svg"))
             self.redo_action.setToolTip("")
-
-
-    # ========================================================
-    # Export PNG
-    # ========================================================
-
-    def get_layer_save_name(self, layer, tag=True):
-
-        name = os.path.splitext(layer.name.strip())[0]
-
-        if tag and (layer.tag is not None):
-            name += f"_{layer.tag}"
-
-        return name
-
-
-    def export_layer(self):
-        layer = self.selected_layer()
-
-        if not layer:
-            return
-
-        self.save_layer_as_png(layer)
-
-
-    def save_layer_as_png(self, layer):
-        alpha = np.asarray(layer.alpha)
-        ys, xs = np.where(alpha > 0)
-
-        if len(xs) == 0:
-            QMessageBox.information(self, "Save Layer", "Layer is completely transparent.")
-            return
-
-        layer.clip_alpha_to_original_bbox()
-
-        left = int(xs.min())
-        right = int(xs.max()) + 1
-        top = int(ys.min())
-        bottom = int(ys.max()) + 1
-
-        result = layer.rgba().crop((left, top, right, bottom))
-
-        path, _ = QFileDialog.getSaveFileName(self, "Save PNG", self.get_layer_save_name(layer) + ".png", "PNG (*.png)")
-
-        if not path:
-            return
-
-        x = int(layer.x + left)
-        y = int(layer.y + top)
-
-        self._remove_images(layer=layer)
-
-        self._save_image(result, path, x=x, y=y, k='layer')
-
-
-    def save_layer_to_project_folder(self, layer):
-
-        if not self.project_path:
-            QMessageBox.information(self, "Save Layer", "Save the project first.")
-            return
-
-        layer.clip_alpha_to_original_bbox()
-
-        project_dir = os.path.dirname(os.path.abspath(self.project_path))
-
-        filename = self.get_layer_save_name(layer)
-        path = os.path.join(project_dir, filename + ".png")
-
-        alpha = np.asarray(layer.alpha)
-        ys, xs = np.where(alpha > 0)
-
-        if len(xs) == 0:
-            QMessageBox.information(self, "Save Layer", "Layer is completely transparent.")
-            return
-
-        left = int(xs.min())
-        right = int(xs.max()) + 1
-        top = int(ys.min())
-        bottom = int(ys.max()) + 1
-
-        result = layer.rgba().crop((left, top, right, bottom))
-
-        x = int(layer.x + left)
-        y = int(layer.y + top)
-
-        self._remove_images(layer=layer)
-
-        self._save_image(result, path, x=x, y=y, k='layer')
-
-
-    def _remove_images(self, layer=None, group=None):
-
-        if layer:
-            filename = self.get_layer_save_name(layer, tag=False)
-        elif group:
-            filename = self.get_group_save_name(group, tag=False)
-        else:
-            raise Exception("`layer` or `group` must be provided.")
-
-        project_dir = os.path.dirname(os.path.abspath(self.project_path))
-
-        for suffix in ["", "_HQ", "_MQ", "_LQ", "_SQ"]:
-            path = os.path.join(project_dir, filename + suffix + ".png")
-
-            if not os.path.exists(path):
-                continue
-
-            try:
-                os.remove(path)
-            except FileNotFoundError:
-                pass
-
-
-    def _save_image(self, image, path, x, y, k):
-
-        metadata = PngInfo()
-        metadata.add_text('x', str(x))
-        metadata.add_text('y', str(y))
-
-        try:
-            image.save(
-                path,
-                format="PNG",
-                pnginfo=metadata,
-                compress_level=1,
-                optimize=False
-            )
-
-            self.status.setText(f"{k.capitalize()} saved: {os.path.basename(path)}")
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error saving", str(e))
 
 
     # ========================================================

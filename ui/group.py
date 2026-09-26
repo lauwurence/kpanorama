@@ -571,15 +571,6 @@ class MainWindowGroup():
         self.status.setText(f"Coordinates copied: {text}")
 
 
-    def get_group_save_name(self, group, tag=True):
-        name = os.path.splitext(group.name.strip())[0]
-
-        if tag and (group.tag is not None):
-            name += f"_{group.tag}"
-
-        return name
-
-
     def export_group(self, group):
 
         if not self.project_path:
