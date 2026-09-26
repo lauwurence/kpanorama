@@ -36,7 +36,11 @@ from PyQt6.QtWidgets import (
     QToolButton,
     QColorDialog,
     QVBoxLayout,
+    QProgressBar,
 )
+
+from queue import Queue
+from PyQt6.QtCore import QTimer
 
 from core.layer import Layer, LayerPreviewItem
 from core.history import History
@@ -126,6 +130,17 @@ class MainWindow(QMainWindow,
         self.setWindowIcon(icon("icon.svg"))
         self.resize(1450, 900)
 
+        self._preview_executor = ThreadPoolExecutor(
+            max_workers=max(1, int(context.CPU_COUNT))
+        )
+
+        self._preview_results = Queue()
+        self._preview_jobs = set()
+
+        self._preview_timer = QTimer(self)
+        self._preview_timer.timeout.connect(self._process_preview_results)
+        self._preview_timer.start(30)
+
         self.brush_size = 100
         self.brush_strength = 100
         self.brush_hardness = 50
@@ -157,6 +172,11 @@ class MainWindow(QMainWindow,
 
         if geometry:
             self.restoreGeometry(geometry)
+
+        self._empty_preview_qimage = QImage(
+            1, 1, QImage.Format.Format_RGBA8888
+        )
+        self._empty_preview_qimage.fill(Qt.GlobalColor.transparent)
 
 
     @property
@@ -196,6 +216,97 @@ class MainWindow(QMainWindow,
         lut[255] = (225, 225, 225)
 
         return lut
+
+    def _preview_worker(self, layer, use_mask):
+        if use_mask:
+            preview = self.create_mask_preview(layer)
+        else:
+            preview = self.create_preview(layer)
+
+        qimage = pil_to_qimage(preview)
+
+        return layer, qimage, use_mask
+
+    def _request_layer_preview(self, layer, use_mask=False):
+        if layer is None:
+            return
+
+        if not layer.item:
+            return
+
+        key = (id(layer), use_mask)
+
+        if key in self._preview_jobs:
+            return
+
+        # Уже есть готовый preview.
+        if use_mask:
+            if layer.preview_mask_qimage is not None:
+                layer.item.set_image(layer.preview_mask_qimage)
+                return
+        else:
+            if layer.preview_normal_qimage is not None:
+                layer.item.set_image(layer.preview_normal_qimage)
+                return
+
+        self._preview_jobs.add(key)
+
+        future = self._preview_executor.submit(
+            self._preview_worker,
+            layer,
+            use_mask,
+        )
+
+        def finished(f):
+            try:
+                result = f.result()
+                self._preview_results.put(result)
+            except Exception as e:
+                print(f"Preview generation error: {e}")
+
+        future.add_done_callback(finished)
+
+        self._preview_jobs.add(key)
+
+        self.set_preview_worker_status(True)
+
+
+    def _process_preview_results(self):
+        while True:
+            try:
+                layer, qimage, use_mask = self._preview_results.get_nowait()
+            except Exception:
+                break
+
+            key = (id(layer), use_mask)
+            self._preview_jobs.discard(key)
+
+            if layer not in self.layers:
+                continue
+
+            if not layer.item:
+                continue
+
+            # Проверяем, что этот preview всё ещё нужен.
+            if not self._layer_should_have_preview(
+                layer,
+                self.selected_layer(),
+            ):
+                continue
+
+            if use_mask:
+                layer.preview_mask_qimage = qimage
+            else:
+                layer.preview_normal_qimage = qimage
+
+            # Только здесь обращаемся к QGraphicsItem.
+            layer.item.set_image(qimage)
+
+        if not self._preview_results.empty():
+            self.view.viewport().update()
+
+        if not self._preview_jobs:
+            self.set_preview_worker_status(False)
 
 
     # ========================================================
@@ -886,11 +997,33 @@ class MainWindow(QMainWindow,
             }
         """)
 
+        # Progress Bar
+        self.preview_progress = QProgressBar()
+        self.preview_progress.setFixedWidth(100)
+        self.preview_progress.setFixedHeight(14)
+        self.preview_progress.setTextVisible(False)
+        self.preview_progress.setRange(0, 1)
+        self.preview_progress.setValue(1)
 
+        self.preview_progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #444444;
+                background: #222222;
+            }
+            QProgressBar::chunk {
+                background-color: #35C759;
+            }
+        """)
+
+        status_bar.addWidget(self.preview_progress)
+
+        self.set_preview_worker_status(False)
+
+        # Status
         self.status = QLabel("Drag and drop images")
         status_bar.addWidget(self.status)
 
-
+        # Zoom
         self.zoom_label = QLabel("Zoom: 100%   | ")
         self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.zoom_label.setStyleSheet("""
@@ -901,7 +1034,7 @@ class MainWindow(QMainWindow,
         """)
         status_bar.addPermanentWidget(self.zoom_label)
 
-
+        # Project Stats
         self.project_stats = QLabel()
         self.project_stats.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.project_stats.setStyleSheet("""
@@ -917,6 +1050,37 @@ class MainWindow(QMainWindow,
         self.update_history_buttons()
 
         QApplication.instance().installEventFilter(self)
+
+
+    def set_preview_worker_status(self, working):
+        if working:
+            self.preview_progress.setRange(0, 0)
+
+            self.preview_progress.setStyleSheet("""
+                QProgressBar {
+                    border: 1px solid #444444;
+                    background: #222222;
+                }
+
+                QProgressBar::chunk {
+                    background-color: #FF3B30;
+                }
+            """)
+
+        else:
+            self.preview_progress.setRange(0, 1)
+            self.preview_progress.setValue(1)
+
+            self.preview_progress.setStyleSheet("""
+                QProgressBar {
+                    border: 1px solid #444444;
+                    background: #222222;
+                }
+
+                QProgressBar::chunk {
+                    background-color: #35C759;
+                }
+            """)
 
 
     def update_project_stats(self):
@@ -1134,9 +1298,6 @@ class MainWindow(QMainWindow,
 
 
     def update_mask_display(self):
-
-        enabled = self.mask_display_enabled
-
         selected = self.selected_layer()
 
         for layer in self.layers:
@@ -1144,14 +1305,42 @@ class MainWindow(QMainWindow,
             if not layer.item:
                 continue
 
-            qimage = self.get_preview_qimage(layer, mask=enabled and selected == layer)
+            visible = self._layer_should_have_preview(
+                layer,
+                selected,
+            )
 
-            layer.item.set_image(qimage)
+            if not visible:
+                layer.item.setVisible(False)
 
-            if layer.mask_dirty:
-                layer.mask_dirty = False
+                layer.preview_normal_qimage = None
+                layer.preview_mask_qimage = None
 
-                self.update_layer_preview(layer)
+                layer.item.set_image(
+                    self._empty_preview_qimage
+                )
+
+                continue
+
+            layer.item.setVisible(True)
+
+            if self.mask_display_enabled and layer is selected:
+
+                # Нужен mask только выбранного слоя.
+                self._request_layer_preview(
+                    layer,
+                    use_mask=True,
+                )
+
+            else:
+
+                # Остальным слоям нужен обычный preview.
+                layer.preview_mask_qimage = None
+
+                self._request_layer_preview(
+                    layer,
+                    use_mask=False,
+                )
 
         self.view.viewport().update()
 
@@ -1182,9 +1371,7 @@ class MainWindow(QMainWindow,
             else:
                 self.status.setText("Solo mode disabled")
 
-
     def update_solo_visibility(self, update=True):
-
         selected = self.selected_layer()
 
         for layer in self.layers:
@@ -1193,19 +1380,50 @@ class MainWindow(QMainWindow,
                 continue
 
             if self.solo_mode_enabled:
-                # В Solo Mode показываем только выбранный слой.
-                layer.item.setVisible(layer is selected)
+                visible = layer is selected
+            else:
+                visible = self.is_layer_visible(layer)
+
+            if visible:
+                layer.item.setVisible(True)
+
+                use_mask = (
+                    self.mask_display_enabled
+                    and layer is selected
+                )
+
+                self._request_layer_preview(
+                    layer,
+                    use_mask=use_mask,
+                )
 
             else:
-                # Обычный режим — возвращаем реальные
-                # состояния eye каждой строки.
-                layer.item.setVisible(self.is_layer_visible(layer))
+                layer.item.setVisible(False)
 
-        self.layer_list.viewport().update()
+                # Освобождаем тяжёлые QImage скрытого слоя.
+                layer.preview_normal_qimage = None
+                layer.preview_mask_qimage = None
+
+                layer.item.set_image(
+                    self._empty_preview_qimage
+                )
 
         if update:
             self.view.viewport().update()
 
+
+    def free_layer_preview(self, layer):
+
+        if layer.item:
+            scene = layer.item.scene()
+
+            if scene:
+                scene.removeItem(layer.item)
+
+            layer.item = None
+
+        layer.preview_normal_qimage = None
+        layer.preview_mask_qimage = None
 
     # ========================================================
     # Zoom
@@ -1565,26 +1783,29 @@ class MainWindow(QMainWindow,
 
     def create_checkerboard(self, width, height, cell_size=16):
         image = QImage(width, height, QImage.Format.Format_RGB888)
-        image.fill(QColor("#bdbdbd"))
+        image.fill(Qt.GlobalColor.black)
 
-        painter = QPainter(image)
-        painter.setPen(Qt.PenStyle.NoPen)
+        # image = QImage(width, height, QImage.Format.Format_RGB888)
+        # image.fill(QColor("#bdbdbd"))
 
-        color1 = QColor("#525252")
-        color2 = QColor("#8f8f8f")
+        # painter = QPainter(image)
+        # painter.setPen(Qt.PenStyle.NoPen)
 
-        for y in range(0, height, cell_size):
+        # color1 = QColor("#525252")
+        # color2 = QColor("#8f8f8f")
 
-            for x in range(0, width, cell_size):
+        # for y in range(0, height, cell_size):
 
-                if ((x // cell_size) + (y // cell_size)) % 2:
-                    painter.setBrush(color2)
-                else:
-                    painter.setBrush(color1)
+        #     for x in range(0, width, cell_size):
 
-                painter.drawRect(x, y, min(cell_size, width - x), min(cell_size, height - y))
+        #         if ((x // cell_size) + (y // cell_size)) % 2:
+        #             painter.setBrush(color2)
+        #         else:
+        #             painter.setBrush(color1)
 
-        painter.end()
+        #         painter.drawRect(x, y, min(cell_size, width - x), min(cell_size, height - y))
+
+        # painter.end()
 
         return image
 
@@ -1595,68 +1816,137 @@ class MainWindow(QMainWindow,
 
 
     def _create_layer_preview(self, args):
-        z, layer = args
+        z, layer, use_mask = args
 
-        preview = self.create_preview(layer)
-        normal_qimage = pil_to_qimage(preview)
+        if use_mask:
+            preview = self.create_mask_preview(layer)
+        else:
+            preview = self.create_preview(layer)
 
-        return z, layer, normal_qimage
+        qimage = pil_to_qimage(preview)
+
+        return z, layer, qimage, use_mask
+
+    def ensure_layer_preview(self, layer, mask=False):
+        if mask:
+            if layer.preview_mask_qimage is None:
+                preview = self.create_mask_preview(layer)
+                layer.preview_mask_qimage = pil_to_qimage(preview)
+
+            qimage = layer.preview_mask_qimage
+
+        else:
+            if layer.preview_normal_qimage is None:
+                preview = self.create_preview(layer)
+                layer.preview_normal_qimage = pil_to_qimage(preview)
+
+            qimage = layer.preview_normal_qimage
+
+        if layer.item:
+            layer.item.set_image(qimage)
+
+        return qimage
+
+    def _layer_should_have_preview(self, layer, selected=None):
+        if self.solo_mode_enabled or self.mask_display_enabled:
+            if selected is None:
+                selected = self.selected_layer()
+            return layer is selected
+
+        return self.is_layer_visible(layer)
 
 
     def rebuild_scene_view(self):
         scene = self.view.scene()
-        scene.clear()
 
         self.preview_scale = self.calculate_preview_scale()
 
-        # Checkerboard background
+        selected = self.selected_layer()
+
+        # Старые preview больше не нужны после rebuild.
+        for layer in self.layers:
+            layer.preview_normal_qimage = None
+            layer.preview_mask_qimage = None
+
+        scene.clear()
+
+        # checkerboard ...
         if self.canvas_width and self.canvas_height:
-
-            if self.canvas_width != self._checker_box_width and \
-               self.canvas_height != self._checker_box_height:
-
+            if (
+                self.canvas_width != self._checker_box_width
+                or self.canvas_height != self._checker_box_height
+            ):
                 self._checker_box_width = self.canvas_width
                 self._checker_box_height = self.canvas_height
 
-                self._checker = QPixmap.fromImage(self.create_checkerboard(
-                    max(1, round(self.canvas_width * self.preview_scale)),
-                    max(1, round(self.canvas_height * self.preview_scale)),
-                    cell_size=max(1, round(16 * self.preview_scale)),
-                ))
+                self._checker = QPixmap.fromImage(
+                    self.create_checkerboard(
+                        max(1, round(self.canvas_width * self.preview_scale)),
+                        max(1, round(self.canvas_height * self.preview_scale)),
+                        cell_size=max(1, round(16 * self.preview_scale)),
+                    )
+                )
 
             checker_item = QGraphicsPixmapItem(self._checker)
             checker_item.setZValue(-1000)
-
             scene.addItem(checker_item)
 
-        # Layers
-        with ThreadPoolExecutor(max_workers=int(context.CPU_COUNT)) as executor:
-            results = executor.map(self._create_layer_preview, enumerate(self.layers))
+        render_args = []
 
-            for z, layer, normal_qimage in results:
-                item = LayerPreviewItem(normal_qimage)
+        # Сначала создаём item ВСЕМ слоям.
+        # Но preview реально создаём только видимым.
+        for z, layer in enumerate(self.layers):
+            visible = self._layer_should_have_preview(
+                layer,
+                selected,
+            )
 
-                item.setPos(
-                    layer.x * self.preview_scale,
-                    layer.y * self.preview_scale
+            item = LayerPreviewItem(self._empty_preview_qimage)
+
+            item.setPos(
+                layer.x * self.preview_scale,
+                layer.y * self.preview_scale,
+            )
+
+            item.setZValue(z)
+            item.setVisible(visible)
+
+            layer.item = item
+            scene.addItem(item)
+
+            if visible:
+                use_mask = (
+                    self.mask_display_enabled
+                    and layer is selected
                 )
 
-                item.setZValue(z)
+                render_args.append(
+                    (z, layer, use_mask)
+                )
 
-                if self.solo_mode_enabled:
-                    visible = layer is self.selected_layer()
+        # Полные изображения создаём только для visible layers.
+        with ThreadPoolExecutor(
+            max_workers=min(
+                int(context.CPU_COUNT),
+                max(1, len(render_args)),
+            )
+        ) as executor:
+
+            results = executor.map(
+                self._create_layer_preview,
+                render_args,
+            )
+
+            for z, layer, qimage, use_mask in results:
+                if use_mask:
+                    layer.preview_mask_qimage = qimage
                 else:
-                    visible = self.is_layer_visible(layer)
+                    layer.preview_normal_qimage = qimage
 
-                item.setVisible(visible)
-
-                layer.item = item
-
-                scene.addItem(item)
+                layer.item.set_image(qimage)
 
         self.update_scene_layer_order()
         self.update_scene_rect()
-
         self.view.viewport().update()
 
 
@@ -1666,6 +1956,13 @@ class MainWindow(QMainWindow,
             layer.item.setZValue(z)
 
         self.view.viewport().update()
+
+    def _release_layer_preview(self, layer):
+        layer.preview_normal_qimage = None
+        layer.preview_mask_qimage = None
+
+        if layer.item:
+            layer.item.set_image(self._empty_preview_qimage)
 
 
     def rebuild_layers_ui(self):

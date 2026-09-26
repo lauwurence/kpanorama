@@ -514,8 +514,27 @@ class MainWindowLayer():
 
 
     def layer_selected(self, row):
-        self.update_solo_visibility()
-        self.update_mask_display()
+        selected = self.selected_layer()
+
+        if selected is None:
+            return
+
+        if self.solo_mode_enabled:
+            for layer in self.layers:
+                if layer.item:
+                    layer.item.setVisible(layer is selected)
+
+        # Генерируем только то, что сейчас действительно нужно.
+        if self.mask_display_enabled:
+            self._request_layer_preview(
+                selected,
+                use_mask=True,
+            )
+        else:
+            self._request_layer_preview(
+                selected,
+                use_mask=False,
+            )
 
         self.view.viewport().update()
         self.update_project_stats()
@@ -556,9 +575,30 @@ class MainWindowLayer():
         if layer.item:
 
             if self.solo_mode_enabled:
-                layer.item.setVisible(layer is self.selected_layer())
+                visible = layer is self.selected_layer()
             else:
-                layer.item.setVisible(layer.visible)
+                visible = self.is_layer_visible(layer)
+
+            layer.item.setVisible(visible)
+
+            if visible:
+                use_mask = (
+                    self.mask_display_enabled
+                    and layer is self.selected_layer()
+                )
+
+                self._request_layer_preview(
+                    layer,
+                    use_mask=use_mask,
+                )
+
+            else:
+                layer.preview_normal_qimage = None
+                layer.preview_mask_qimage = None
+
+                layer.item.set_image(
+                    self._empty_preview_qimage
+                )
 
         if layer.list_item:
             try:

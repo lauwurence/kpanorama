@@ -265,7 +265,7 @@ class ProjectIO():
             # Prepare layers in parallel
             layer_args = [ (i, layer) for i, layer in enumerate(self.layers) ]
 
-            with ThreadPoolExecutor(max_workers=int(context.CPU_COUNT)) as executor:
+            with ThreadPoolExecutor(max_workers=int(context.CPU_COUNT * 0.5)) as executor:
                 results = executor.map(_prepare_project_layer, layer_args)
                 prepared_layers = list(results)
 
@@ -375,7 +375,7 @@ class ProjectIO():
                 # Load layers in parallel
                 layer_args = [ (i, data, layer_files) for i, data in enumerate(project["layers"]) ]
 
-                with ThreadPoolExecutor(max_workers=int(context.CPU_COUNT)) as executor:
+                with ThreadPoolExecutor(max_workers=int(context.CPU_COUNT * 0.5)) as executor:
                     results = executor.map(_load_project_layer, layer_args)
                     loaded_layers = list(results)
 
