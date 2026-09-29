@@ -825,9 +825,22 @@ class MainWindow(QMainWindow,
 
         file_menu = QMenu(self)
 
-        # file_menu.addAction("New", self.new_project)
+        # Open
         file_menu.addAction("Open", self.load_project)
+
+        # Open Recent
+        self.recent_projects_menu = QMenu(
+            "Open Recent",
+            self
+        )
+
+        file_menu.addMenu(self.recent_projects_menu)
+
+        self.update_recent_projects_menu()
+
         file_menu.addSeparator()
+
+        # Save
         file_menu.addAction("Save", self.save_project)
         file_menu.addAction("Save As...", self.save_project_as)
         file_menu.addSeparator()

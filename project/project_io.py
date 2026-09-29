@@ -16,6 +16,7 @@ from core.layer import Layer, LayerGroup
 
 import context
 
+MAX_RECENT_PROJECTS = 10
 
 ################################################################################
 # Alpha normalization
@@ -211,6 +212,126 @@ def _prepare_project_layer(args):
 
 class ProjectIO():
 
+    # ========================================================
+    # Recent Projects
+    # ========================================================
+
+    def get_recent_projects(self):
+        """
+        Возвращает список последних существующих проектов.
+        """
+
+        projects = self.settings.value("recent_projects", [], type=list)
+
+        # Удаляем отсутствующие файлы и дубликаты
+        result = []
+        seen = set()
+
+        for path in projects:
+
+            path = os.path.abspath(os.path.expanduser(path))
+
+            if path in seen:
+                continue
+
+            seen.add(path)
+
+            if not os.path.isfile(path):
+                continue
+
+            if not path.lower().endswith(".kpp"):
+                continue
+
+            result.append(path)
+
+        result = result[:MAX_RECENT_PROJECTS]
+
+        # Сохраняем очищенный список
+        self.settings.setValue("recent_projects", result)
+
+        return result
+
+
+    def add_recent_project(self, path):
+        """
+        Добавляет проект в начало списка последних проектов.
+        """
+
+        if not path:
+            return
+
+        path = os.path.abspath(os.path.expanduser(path))
+
+        if not os.path.isfile(path):
+            return
+
+        projects = self.get_recent_projects()
+
+        # Убираем старую запись, если проект уже был в списке
+        projects = [ p for p in projects if os.path.normcase(p) != os.path.normcase(path) ]
+
+        # Последний открытый проект будет первым
+        projects.insert(0, path)
+
+        projects = projects[:MAX_RECENT_PROJECTS]
+
+        self.settings.setValue("recent_projects", projects)
+        self.settings.sync()
+
+        self.update_recent_projects_menu()
+
+
+    def update_recent_projects_menu(self):
+        """
+        Обновляет подменю Open Recent.
+        """
+
+        self.recent_projects_menu.clear()
+
+        projects = self.get_recent_projects()
+
+        if not projects:
+            action = self.recent_projects_menu.addAction("No recent projects")
+            action.setEnabled(False)
+
+        else:
+
+            for path in projects:
+
+                filename = os.path.basename(path)
+
+                action = self.recent_projects_menu.addAction(filename)
+                action.setToolTip(path)
+                action.triggered.connect(lambda checked=False, p=path: self.load_recent_project(p))
+
+            self.recent_projects_menu.addSeparator()
+            self.recent_projects_menu.addAction("Clear Recent Projects", self.clear_recent_projects)
+
+
+    def load_recent_project(self, path):
+        """
+        Открывает проект из списка последних проектов.
+        """
+
+        if not os.path.isfile(path):
+            QMessageBox.warning(self, "Project Not Found", f"The project file no longer exists:\n\n{path}")
+
+            self.update_recent_projects_menu()
+            return
+
+        self.load_project_from_path(path)
+
+
+    def clear_recent_projects(self):
+        """
+        Очищает список последних проектов.
+        """
+
+        self.settings.setValue("recent_projects", [])
+        self.settings.sync()
+
+        self.update_recent_projects_menu()
+
 
     ############################################################################
     # Save project
@@ -305,6 +426,8 @@ class ProjectIO():
             self.status.setText("Project saved")
             self.update_project_stats()
 
+            self.add_recent_project(path)
+
             return True
 
         except Exception as e:
@@ -396,6 +519,8 @@ class ProjectIO():
                 self.select_layer(len(self.layers) - 1)
 
             self.mark_project_saved()
+
+            self.add_recent_project(path)
 
             self.status.setText("Project loaded")
 
