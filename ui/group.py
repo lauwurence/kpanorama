@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
     QLabel,
 )
 
-from core.layer import LayerGroup
+from core.layer import Layer, LayerGroup
 
 from context import icon
 
@@ -48,9 +48,28 @@ class MainWindowGroup():
 
 
     def create_group(self):
+
+        # Group
         group = LayerGroup()
         self.groups.append(group)
-        self.rebuild_layers_ui()
+
+        # Layer
+        if len(self.layers) > 0:
+            image = Image.new("RGB", (self.canvas_width, self.canvas_height), (255, 255, 255))
+            layer = Layer(
+                name="Solid",
+                image=image,
+                x=0,
+                y=0,
+                mode='solid',
+                width=self.canvas_width,
+                height=self.canvas_height
+            )
+            layer.invert_alpha()
+            layer.group_id = group.id
+            self.layers.append(layer)
+
+        self.rebuild_scene()
         self.status.setText(f"Group created: {group.name}")
 
 
