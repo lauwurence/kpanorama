@@ -3,6 +3,7 @@
 
 import os
 import sys
+import psutil
 
 import numpy as np
 from PIL import Image
@@ -13,7 +14,6 @@ from PyQt6.QtCore import Qt, QSize, QTimer, QSettings, QRectF, QEvent
 from PyQt6.QtGui import (
     QColor,
     QImage,
-    QPainter,
     QPixmap,
     QImageReader,
 )
@@ -140,6 +140,12 @@ class MainWindow(QMainWindow,
         self._preview_timer = QTimer(self)
         self._preview_timer.timeout.connect(self._process_preview_results)
         self._preview_timer.start(30)
+
+        self.process = psutil.Process(os.getpid())
+
+        self.memory_timer = QTimer(self)
+        self.memory_timer.timeout.connect(self.update_memory_usage)
+        self.memory_timer.start(1000)
 
         self.brush_size = 100
         self.brush_strength = 100
@@ -829,10 +835,7 @@ class MainWindow(QMainWindow,
         file_menu.addAction("Open", self.load_project)
 
         # Open Recent
-        self.recent_projects_menu = QMenu(
-            "Open Recent",
-            self
-        )
+        self.recent_projects_menu = QMenu("Open Recent", self)
 
         file_menu.addMenu(self.recent_projects_menu)
 
@@ -975,7 +978,7 @@ class MainWindow(QMainWindow,
         self.solo_mode_action.triggered.connect(self.toggle_solo_mode)
         toolbar.widgetForAction(self.solo_mode_action).setStyleSheet(button_style)
 
-        toolbar.addWidget(create_spacing(5))
+        toolbar.addWidget(create_separator())
 
         # ----------------------------------------------------
         # Smart Mask
@@ -1083,6 +1086,17 @@ class MainWindow(QMainWindow,
         """)
         status_bar.addPermanentWidget(self.project_stats)
 
+        # RAM
+        self.memory_label = QLabel()
+        self.memory_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.memory_label.setStyleSheet("""
+            QLabel {
+                color: #999;
+                padding: 0 0px;
+            }
+        """)
+        status_bar.addPermanentWidget(self.memory_label)
+
         self.update_project_stats()
         self.update_window_title()
         self.update_history_buttons()
@@ -1119,6 +1133,10 @@ class MainWindow(QMainWindow,
                     background-color: #35C759;
                 }
             """)
+
+    def update_memory_usage(self):
+        memory_mb = self.process.memory_info().rss / (1024 * 1024)
+        self.memory_label.setText(f" |   RAM: {memory_mb:.1f} MB")
 
 
     def update_project_stats(self):
