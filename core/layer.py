@@ -134,7 +134,9 @@ class Layer():
     def mark_dirty(self, image=False, mask=False):
 
         if image:
-            self._image = None
+
+            if self.is_solid:
+                self._image = None
 
             self.preview_normal_qimage = None
 
@@ -348,7 +350,8 @@ class Layer():
         self.preview_normal_qimage = None
         self.preview_mask_qimage = None
 
-        self._image = None
+        if self.is_solid:
+            self._image = None
 
 
 class LayerPreviewItem(QGraphicsItem):

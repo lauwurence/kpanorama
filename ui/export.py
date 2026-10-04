@@ -16,6 +16,11 @@ class MainWindowExport():
 
         name = os.path.splitext(layer.name.strip())[0]
 
+        if name.startswith("*"):
+            bg_layer = self.layers[0]
+            bg_name = bg_layer.name
+            name = f'{bg_name}{name[1:]}'
+
         if tag and (layer.tag is not None):
             name += f"_{layer.tag}"
 
@@ -23,7 +28,13 @@ class MainWindowExport():
 
 
     def get_group_save_name(self, group, tag=True):
+
         name = os.path.splitext(group.name.strip())[0]
+
+        if name.startswith("*"):
+            bg_layer = self.layers[0]
+            bg_name = bg_layer.name
+            name = f'{bg_name}{name[1:]}'
 
         if tag and (group.tag is not None):
             name += f"_{group.tag}"
