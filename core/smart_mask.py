@@ -41,9 +41,9 @@ class SmartMaskDialog(QDialog):
         layout.setSpacing(10)
 
         self.threshold_spin = QDoubleSpinBox()
-        self.threshold_spin.setRange(0.0, 255.0)
-        self.threshold_spin.setSingleStep(1.0)
-        self.threshold_spin.setDecimals(1)
+        self.threshold_spin.setRange(0, 255)
+        self.threshold_spin.setSingleStep(1)
+        self.threshold_spin.setDecimals(0)
         self.threshold_spin.setValue(threshold)
         self.threshold_spin.setSuffix(" RGB")
         layout.addRow("Threshold:", self.threshold_spin)
@@ -141,6 +141,7 @@ class SmartMaskAction():
             return
 
         dialog = SmartMaskDialog(self)
+
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
@@ -184,8 +185,9 @@ class SmartMaskAction():
         background = self.layers[0]
         background_crop = background.image.crop((crop_x0, crop_y0, crop_x1, crop_y1))
 
-        layer_rgb = np.asarray(layer_crop, dtype=np.uint8)
-        background_rgb = np.asarray(background_crop, dtype=np.uint8)
+        # Ищем разницу в цвете
+        layer_rgb = np.asarray(layer_crop, dtype=np.float32)
+        background_rgb = np.asarray(background_crop, dtype=np.float32)
 
         difference = np.mean(np.abs(layer_rgb - background_rgb), axis=2)
         character_mask = difference >= threshold
@@ -222,7 +224,6 @@ class SmartMaskAction():
 
         outside_distance = ndimage.distance_transform_edt(~character_mask)
 
-
         if softness <= 0:
             generated_alpha = character_mask.astype(np.float32) * 255.0
 
@@ -239,24 +240,16 @@ class SmartMaskAction():
 
             # Евклидово расстояние от каждого внешнего пикселя
             # до исходной маски.
-            distance_from_mask = ndimage.distance_transform_edt(
-                ~character_mask
-            )
+            distance_from_mask = ndimage.distance_transform_edt(~character_mask)
 
             # Расширяем маску на softness пикселей.
             expanded_mask = distance_from_mask <= expansion
 
             # Расстояние наружу уже от расширенной маски.
-            outside_distance = ndimage.distance_transform_edt(
-                ~expanded_mask
-            )
+            outside_distance = ndimage.distance_transform_edt(~expanded_mask)
 
             # Плавный переход.
-            t = np.clip(
-                outside_distance / softness,
-                0.0,
-                1.0,
-            )
+            t = np.clip(outside_distance / softness, 0.0, 1.0)
 
             # Smoothstep.
             smooth = t * t * (3.0 - 2.0 * t)
@@ -266,32 +259,16 @@ class SmartMaskAction():
             # Вся расширенная область полностью непрозрачная.
             generated_alpha[expanded_mask] = 255.0
 
-        generated_alpha = np.minimum(
-            generated_alpha,
-            source_alpha.astype(np.float32),
-        )
+        generated_alpha = np.minimum(generated_alpha, source_alpha.astype(np.float32))
 
         before = layer.alpha.copy()
 
-        full_alpha = np.asarray(
-            layer.alpha,
-            dtype=np.uint8,
-        ).copy()
+        full_alpha = np.asarray(layer.alpha, dtype=np.uint8).copy()
+        full_alpha[local_y0:local_y1, local_x0:local_x1] = generated_alpha.astype(np.uint8)
 
-        full_alpha[
-            local_y0:local_y1,
-            local_x0:local_x1,
-        ] = generated_alpha.astype(np.uint8)
+        after = Image.fromarray(full_alpha, mode="L")
 
-        after = Image.fromarray(
-            full_alpha,
-            mode="L",
-        )
-
-        if np.array_equal(
-            np.asarray(before),
-            np.asarray(after),
-        ):
+        if np.array_equal(np.asarray(before), np.asarray(after)):
             self.status.setText("Smart Mask made no changes")
             return
 
